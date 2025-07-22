@@ -18,7 +18,6 @@ class AdminController {
                     (SELECT COUNT(*) FROM users WHERE is_active = true) as total_users,
                     (SELECT COUNT(*) FROM users WHERE role = 'admin' AND is_active = true) as admin_count,
                     (SELECT COUNT(*) FROM users WHERE role = 'professor' AND is_active = true) as professor_count,
-                    (SELECT COUNT(*) FROM users WHERE role = 'student' AND is_active = true) as student_count,
                     (SELECT COUNT(*) FROM classes WHERE is_active = true) as total_classes,
                     (SELECT COUNT(*) FROM quizzes WHERE is_active = true) as total_quizzes,
                     (SELECT COUNT(*) FROM quiz_submissions WHERE is_completed = true) as total_submissions,
@@ -75,8 +74,7 @@ class AdminController {
                 SELECT 
                     (SELECT COUNT(*) FROM users WHERE is_active = true) as total_users,
                     (SELECT COUNT(*) FROM users WHERE role = 'admin' AND is_active = true) as admin_count,
-                    (SELECT COUNT(*) FROM users WHERE role = 'professor' AND is_active = true) as professor_count,
-                    (SELECT COUNT(*) FROM users WHERE role = 'student' AND is_active = true) as student_count,
+                    (SELECT COUNT(*) FROM users WHERE role = 'professor' AND is_active = true) as professor_count, 
                     (SELECT COUNT(*) FROM users WHERE last_login >= DATE_SUB(NOW(), INTERVAL 1 DAY)) as active_24h,
                     (SELECT COUNT(*) FROM classes WHERE is_active = true) as total_classes,
                     (SELECT COUNT(*) FROM quizzes WHERE is_active = true) as total_quizzes,
