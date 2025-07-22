@@ -1,0 +1,1 @@
+{"message":"Login successful","user":{"id":1,"username":"admin","email":"admin@quiz.com","firstName":"System","lastName":"Administrator","role":"admin","lastLogin":null},"token":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOjEsInJvbGUiOiJhZG1pbiIsImlhdCI6MTc1MjE4ODEwNywiZXhwIjoxNzUyMjc0NTA3fQ.tgEvMUUE9JKwZW5FvXMNoAoJwyL-SZLNwz5MFQm_TNc"}
