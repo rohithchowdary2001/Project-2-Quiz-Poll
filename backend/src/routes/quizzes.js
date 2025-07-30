@@ -231,7 +231,7 @@ class QuizController {
   // Create new quiz (professor only)
   static async createQuiz(req, res, next) {
     try {
-      const { title, description, classId, deadline, timeLimit, questions } =
+      const { title, description, classId, deadline, questionTimeLimit, questions } =
         req.body;
 
       // Validate required fields
@@ -277,7 +277,7 @@ class QuizController {
             classId,
             req.user.id,
             deadlineDate,
-            timeLimit || 30,
+            Math.ceil((questionTimeLimit || 30) * questions.length / 60), // Calculate total time based on questions
           ]
         );
 
@@ -299,14 +299,15 @@ class QuizController {
 
           // Insert question
           const [questionResult] = await connection.execute(
-            `INSERT INTO questions (quiz_id, question_text, question_type, question_order, points) 
-                         VALUES (?, ?, ?, ?, ?)`,
+            `INSERT INTO questions (quiz_id, question_text, question_type, question_order, points, question_time_limit) 
+                         VALUES (?, ?, ?, ?, ?, ?)`,
             [
               quizId,
               question.questionText,
               question.questionType || "single_choice",
               i + 1,
               question.points || 1,
+              questionTimeLimit || 30,
             ]
           );
 
@@ -363,7 +364,7 @@ class QuizController {
           description: description,
           classId: classId,
           deadline: deadlineDate,
-          timeLimit: timeLimit || 30,
+          timeLimit: questionTimeLimit || 30,
           questionCount: questions.length,
         },
       });

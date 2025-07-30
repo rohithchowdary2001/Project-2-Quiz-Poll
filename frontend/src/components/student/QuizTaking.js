@@ -12,8 +12,7 @@ const QuizTaking = () => {
     const [submission, setSubmission] = useState(null);
     const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
     const [answers, setAnswers] = useState({});
-    const [timeRemaining, setTimeRemaining] = useState(0); // whole quiz timer
-    const [questionTimeLeft, setQuestionTimeLeft] = useState(0); // per-question timer
+    const [questionTimeLeft, setQuestionTimeLeft] = useState(0); // per-question timer only
     const questionTimerRef = useRef();
     const [loading, setLoading] = useState(true);
     const [submitting, setSubmitting] = useState(false);
@@ -45,29 +44,11 @@ const QuizTaking = () => {
         };
     }, [quizId]);
 
-    useEffect(() => {
-        let timer = null;
-        if (timeRemaining > 0) {
-            timer = setInterval(() => {
-                setTimeRemaining(prev => {
-                    if (prev <= 1) {
-                        handleAutoSubmit();
-                        return 0;
-                    }
-                    return prev - 1;
-                });
-            }, 1000);
-        }
-        return () => {
-            if (timer) clearInterval(timer);
-        };
-    }, [timeRemaining]);
-
     // Per-question timer effect
   useEffect(() => {
     if (!quiz || !quiz.questions || !quiz.questions[currentQuestionIndex]) return;
 
-    const timeLimit = quiz.questions[currentQuestionIndex].questionTimeLimit || 30;
+    const timeLimit = quiz.questions[currentQuestionIndex].question_time_limit || 30;
     setQuestionTimeLeft(timeLimit);
 
     if (questionTimerRef.current) clearInterval(questionTimerRef.current);
@@ -76,12 +57,8 @@ const QuizTaking = () => {
         setQuestionTimeLeft(prev => {
             if (prev <= 1) {
                 clearInterval(questionTimerRef.current);
-                // If last question, show submit modal or auto-submit
-                if (currentQuestionIndex === quiz.questions.length - 1) {
-                    setShowConfirmSubmit(true); // or call handleCompleteQuiz()
-                } else {
-                    setCurrentQuestionIndex(currentQuestionIndex + 1);
-                }
+                // Auto-move to next question or submit quiz
+                handleTimeExpired();
                 return 0;
             }
             return prev - 1;
@@ -100,11 +77,6 @@ const QuizTaking = () => {
             setSubmission(startResponse.data.submission);
             const quizResponse = await api.get(`/quizzes/${quizId}`);
             setQuiz(quizResponse.data.quiz);
-            if (startResponse.data.submission.timeRemaining !== undefined) {
-                setTimeRemaining(startResponse.data.submission.timeRemaining * 60);
-            } else if (quizResponse.data.quiz.time_limit_minutes) {
-                setTimeRemaining(quizResponse.data.quiz.time_limit_minutes * 60);
-            }
             setError('');
         } catch (err) {
             setError(err.response?.data?.message || 'Failed to start quiz');
@@ -113,6 +85,34 @@ const QuizTaking = () => {
             }, 3000);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleTimeExpired = async () => {
+        const currentQuestion = quiz.questions[currentQuestionIndex];
+        const answer = answers[currentQuestion.id];
+
+        // Submit current answer if exists
+        if (submission && answer !== undefined && answer !== '') {
+            try {
+                await api.post('/submissions/answer', {
+                    submissionId: submission.id,
+                    questionId: currentQuestion.id,
+                    selectedOptionId: answer
+                });
+                console.log('Auto-submitted answer for question:', currentQuestion.id);
+            } catch (err) {
+                console.error('Failed to auto-submit answer:', err);
+            }
+        }
+
+        // Move to next question or complete quiz
+        if (currentQuestionIndex === quiz.questions.length - 1) {
+            // Last question - auto-submit quiz
+            handleCompleteQuiz();
+        } else {
+            // Move to next question
+            setCurrentQuestionIndex(currentQuestionIndex + 1);
         }
     };
 
@@ -223,28 +223,6 @@ const QuizTaking = () => {
         }
     };
 
-    const handleAutoSubmit = async () => {
-        try {
-            await api.post('/submissions/complete', {
-                submissionId: submission.id
-            });
-            alert('Time is up! Quiz has been automatically submitted.');
-            navigate('/student/history');
-        } catch (err) {}
-    };
-
-    const formatTime = (seconds) => {
-        const minutes = Math.floor(seconds / 60);
-        const remainingSeconds = seconds % 60;
-        return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
-    };
-
-    const getTimeWarningClass = () => {
-        if (timeRemaining <= 300) return 'text-danger';
-        if (timeRemaining <= 600) return 'text-warning';
-        return 'text-primary';
-    };
-
     const calculateProgress = () => {
         if (!quiz) return 0;
         const answered = Object.keys(answers).length;
@@ -319,18 +297,12 @@ const QuizTaking = () => {
                                     <small className="text-muted">{progress}% completed</small>
                                 </div>
                                 <div className="col-md-4 text-end">
-                                    {/* Whole quiz timer */}
-                                    {timeRemaining > 0 && (
-                                        <div className={`h4 mb-0 ${getTimeWarningClass()}`}>
-                                            <i className="fas fa-clock me-2"></i>
-                                            {formatTime(timeRemaining)}
-                                        </div>
-                                    )}
                                     {/* Per-question timer */}
-                                    <div className="h6 mt-2 text-warning">
+                                    <div className="h4 mb-0 text-warning">
                                         <i className="fas fa-stopwatch me-2"></i>
-                                        Time left for this question: {questionTimeLeft}s
+                                        Time left: {questionTimeLeft}s
                                     </div>
+                                    <small className="text-muted">Auto-moves when time expires</small>
                                 </div>
                             </div>
                         </div>
@@ -484,7 +456,7 @@ const QuizTaking = () => {
                                         <strong>Summary:</strong><br/>
                                         • Questions answered: {Object.keys(answers).length} of {quiz.questions.length}<br/>
                                         • Unanswered questions: {quiz.questions.length - Object.keys(answers).length}<br/>
-                                        • Time remaining: {formatTime(timeRemaining)}
+                                        • Current question time: {questionTimeLeft}s remaining
                                     </small>
                                 </div>
                                 <p className="text-warning">

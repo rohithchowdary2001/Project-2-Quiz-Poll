@@ -19,7 +19,7 @@ const QuizManagement = () => {
     description: "",
     classId: "",
     deadline: "",
-    timeLimit: 30,
+    questionTimeLimit: 30, // Single time limit for ALL questions
     questions: [
       {
         questionText: "",
@@ -29,8 +29,6 @@ const QuizManagement = () => {
           { text: "", isCorrect: false },
           { text: "", isCorrect: false },
         ],
-        // Add per-question time limit field
-        questionTimeLimit: 30, // seconds, default
       },
     ],
   });
@@ -107,17 +105,18 @@ const QuizManagement = () => {
           setError(`Question ${i + 1} must have at least one correct answer`);
           return;
         }
-        if (!question.questionTimeLimit || question.questionTimeLimit < 5) {
-          setError(`Question ${i + 1} must have a time limit of at least 5 seconds`);
-          return;
-        }
+      }
+      
+      if (!quizForm.questionTimeLimit || quizForm.questionTimeLimit < 5) {
+        setError(`Question time limit must be at least 5 seconds`);
+        return;
       }
       const response = await api.post("/quizzes", {
         title: quizForm.title,
         description: quizForm.description,
         classId: quizForm.classId,
         deadline: quizForm.deadline || null,
-        timeLimit: quizForm.timeLimit,
+        questionTimeLimit: quizForm.questionTimeLimit,
         questions: quizForm.questions,
       });
       setShowCreateModal(false);
@@ -169,7 +168,6 @@ const QuizManagement = () => {
             { text: "", isCorrect: false },
             { text: "", isCorrect: false },
           ],
-          questionTimeLimit: 30, // default per-question time limit
         },
       ],
     });
@@ -214,7 +212,7 @@ const QuizManagement = () => {
       description: "",
       classId: "",
       deadline: "",
-      timeLimit: 30,
+      questionTimeLimit: 30,
       questions: [
         {
           questionText: "",
@@ -224,7 +222,6 @@ const QuizManagement = () => {
             { text: "", isCorrect: false },
             { text: "", isCorrect: false },
           ],
-          questionTimeLimit: 30,
         },
       ],
     });
@@ -468,21 +465,27 @@ const QuizManagement = () => {
                       </div>
                       <div className="col-md-6 mb-3">
                         <label className="form-label">
-                          Time Limit (minutes)
+                          Question Time Limit (seconds)
                         </label>
                         <input
                           type="number"
                           className="form-control"
-                          value={quizForm.timeLimit}
-                          onChange={(e) =>
+                          value={quizForm.questionTimeLimit}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            const numValue = value === '' ? 30 : parseInt(value);
                             setQuizForm({
                               ...quizForm,
-                              timeLimit: parseInt(e.target.value),
-                            })
-                          }
-                          min="1"
+                              questionTimeLimit: isNaN(numValue) ? 30 : numValue,
+                            });
+                          }}
+                          min="5"
                           max="300"
+                          placeholder="Time per question in seconds"
                         />
+                        <small className="text-muted">
+                          This time limit will apply to ALL questions
+                        </small>
                       </div>
                       <div className="col-12 mb-3">
                         <label className="form-label">Description</label>
@@ -637,27 +640,6 @@ const QuizManagement = () => {
                                 )}
                               </div>
                             ))}
-                          </div>
-                          {/* Per-question time limit input */}
-                          <div className="mb-2">
-                            <label className="form-label">
-                              Time Limit (seconds)
-                            </label>
-                            <input
-                              type="number"
-                              className="form-control"
-                              value={question.questionTimeLimit}
-                              onChange={(e) =>
-                                updateQuestion(
-                                  questionIndex,
-                                  "questionTimeLimit",
-                                  parseInt(e.target.value)
-                                )
-                              }
-                              min="5"
-                              max="600"
-                              required
-                            />
                           </div>
                         </div>
                       </div>
