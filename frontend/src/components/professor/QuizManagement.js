@@ -29,6 +29,8 @@ const QuizManagement = () => {
           { text: "", isCorrect: false },
           { text: "", isCorrect: false },
         ],
+        // Add per-question time limit field
+        questionTimeLimit: 30, // seconds, default
       },
     ],
   });
@@ -105,6 +107,10 @@ const QuizManagement = () => {
           setError(`Question ${i + 1} must have at least one correct answer`);
           return;
         }
+        if (!question.questionTimeLimit || question.questionTimeLimit < 5) {
+          setError(`Question ${i + 1} must have a time limit of at least 5 seconds`);
+          return;
+        }
       }
       const response = await api.post("/quizzes", {
         title: quizForm.title,
@@ -163,6 +169,7 @@ const QuizManagement = () => {
             { text: "", isCorrect: false },
             { text: "", isCorrect: false },
           ],
+          questionTimeLimit: 30, // default per-question time limit
         },
       ],
     });
@@ -217,6 +224,7 @@ const QuizManagement = () => {
             { text: "", isCorrect: false },
             { text: "", isCorrect: false },
           ],
+          questionTimeLimit: 30,
         },
       ],
     });
@@ -629,6 +637,27 @@ const QuizManagement = () => {
                                 )}
                               </div>
                             ))}
+                          </div>
+                          {/* Per-question time limit input */}
+                          <div className="mb-2">
+                            <label className="form-label">
+                              Time Limit (seconds)
+                            </label>
+                            <input
+                              type="number"
+                              className="form-control"
+                              value={question.questionTimeLimit}
+                              onChange={(e) =>
+                                updateQuestion(
+                                  questionIndex,
+                                  "questionTimeLimit",
+                                  parseInt(e.target.value)
+                                )
+                              }
+                              min="5"
+                              max="600"
+                              required
+                            />
                           </div>
                         </div>
                       </div>

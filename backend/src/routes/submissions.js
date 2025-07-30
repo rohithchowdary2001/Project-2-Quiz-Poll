@@ -191,33 +191,34 @@ class SubmissionController {
         question_id: questionId,
       });
 
-      if (existingAnswer) {
-        // Update existing answer
-        await database.update(
-          "student_answers",
-          {
-            selected_option_id: selectedOptionId,
-            is_correct: isCorrect,
-            answered_at: new Date(),
-          },
-          {
-            submission_id: submissionId,
-            question_id: questionId,
-          }
-        );
-      } else {
-// This should run on every answer!
-await database.insertOrUpdate("student_answers", {
-  submission_id: submissionId,
-  question_id: questionId,
-  selected_option_id: selectedOptionId,
-  is_correct: isCorrect,
-  answered_at: new Date(),
-});
-global.io.to(`quiz_${submissionInfo.quiz_id}_professors`).emit('quizResultsUpdated', {
-  quizId: submissionInfo.quiz_id,
-  questionId: questionId
-});
+     if (existingAnswer) {
+    // Update existing answer
+    await database.update(
+      "student_answers",
+      {
+        selected_option_id: selectedOptionId,
+        is_correct: isCorrect,
+        answered_at: new Date(),
+      },
+      {
+        submission_id: submissionId,
+        question_id: questionId,
+      }
+    );
+} else {
+    // CHANGE THIS BLOCK:
+    // await database.insertOrUpdate("student_answers", {...});
+    await database.insert("student_answers", {
+      submission_id: submissionId,
+      question_id: questionId,
+      selected_option_id: selectedOptionId,
+      is_correct: isCorrect,
+      answered_at: new Date(),
+    });
+    global.io.to(`quiz_${submissionInfo.quiz_id}_professors`).emit('quizResultsUpdated', {
+      quizId: submissionInfo.quiz_id,
+      questionId: questionId
+    });
 }
 
       res.json({

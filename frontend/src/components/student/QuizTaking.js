@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../services/api';
-import socket from '../../services/socket'; // <-- Add this import
+import socket from '../../services/socket';
 
 const QuizTaking = () => {
     const { quizId } = useParams();
@@ -12,7 +12,9 @@ const QuizTaking = () => {
     const [submission, setSubmission] = useState(null);
     const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
     const [answers, setAnswers] = useState({});
-    const [timeRemaining, setTimeRemaining] = useState(0);
+    const [timeRemaining, setTimeRemaining] = useState(0); // whole quiz timer
+    const [questionTimeLeft, setQuestionTimeLeft] = useState(0); // per-question timer
+    const questionTimerRef = useRef();
     const [loading, setLoading] = useState(true);
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState('');
@@ -41,6 +43,36 @@ const QuizTaking = () => {
             if (timer) clearInterval(timer);
         };
     }, [timeRemaining]);
+
+    // Per-question timer effect
+  useEffect(() => {
+    if (!quiz || !quiz.questions || !quiz.questions[currentQuestionIndex]) return;
+
+    const timeLimit = quiz.questions[currentQuestionIndex].questionTimeLimit || 30;
+    setQuestionTimeLeft(timeLimit);
+
+    if (questionTimerRef.current) clearInterval(questionTimerRef.current);
+
+    questionTimerRef.current = setInterval(() => {
+        setQuestionTimeLeft(prev => {
+            if (prev <= 1) {
+                clearInterval(questionTimerRef.current);
+                // If last question, show submit modal or auto-submit
+                if (currentQuestionIndex === quiz.questions.length - 1) {
+                    setShowConfirmSubmit(true); // or call handleCompleteQuiz()
+                } else {
+                    setCurrentQuestionIndex(currentQuestionIndex + 1);
+                }
+                return 0;
+            }
+            return prev - 1;
+        });
+    }, 1000);
+
+    return () => {
+        if (questionTimerRef.current) clearInterval(questionTimerRef.current);
+    };
+}, [currentQuestionIndex, quiz]);
 
     const startQuiz = async () => {
         try {
@@ -81,37 +113,36 @@ const QuizTaking = () => {
         }
     };
 
- const handleNextQuestion = async () => {
-    // Get current question info
-    const currentQuestion = quiz.questions[currentQuestionIndex];
-    const answer = answers[currentQuestion.id];
+    const handleNextQuestion = async () => {
+        const currentQuestion = quiz.questions[currentQuestionIndex];
+        const answer = answers[currentQuestion.id];
 
-    // Only submit if an answer exists
-    if (submission && answer !== undefined && answer !== '') {
-        try {
-            await api.post('/submissions/answer', {
-                submissionId: submission.id,
-                questionId: currentQuestion.id,
-                selectedOptionId: answer
-            });
+        // Only submit if an answer exists
+        if (submission && answer !== undefined && answer !== '') {
+            try {
+                await api.post('/submissions/answer', {
+                    submissionId: submission.id,
+                    questionId: currentQuestion.id,
+                    selectedOptionId: answer
+                });
 
-            // Emit answer update for real-time professor dashboard
-            socket.emit('studentAnswerUpdate', {
-                submissionId: submission.id,
-                quizId: quizId,
-                questionId: currentQuestion.id,
-                selectedOptionId: answer
-            });
-        } catch (err) {
-            setError(err.response?.data?.message || 'Failed to submit answer');
+                // Emit answer update for real-time professor dashboard
+                socket.emit('studentAnswerUpdate', {
+                    submissionId: submission.id,
+                    quizId: quizId,
+                    questionId: currentQuestion.id,
+                    selectedOptionId: answer
+                });
+            } catch (err) {
+                setError(err.response?.data?.message || 'Failed to submit answer');
+            }
         }
-    }
 
-    // Move to next question
-    if (currentQuestionIndex < quiz.questions.length - 1) {
-        setCurrentQuestionIndex(currentQuestionIndex + 1);
-    }
-};
+        // Move to next question
+        if (currentQuestionIndex < quiz.questions.length - 1) {
+            setCurrentQuestionIndex(currentQuestionIndex + 1);
+        }
+    };
 
     const handlePreviousQuestion = () => {
         if (currentQuestionIndex > 0) {
@@ -129,8 +160,6 @@ const QuizTaking = () => {
             const response = await api.post('/submissions/complete', {
                 submissionId: submission.id
             });
-            // Emit socket event for real-time update (optional, backend already emits)
-            // socket.emit('quizResultsUpdated', { quizId: quizId });
             alert(`Quiz completed! Your score: ${response.data.result.score}/${response.data.result.maxScore} (${response.data.result.percentage}%)`);
             navigate('/student/history');
         } catch (err) {
@@ -146,8 +175,6 @@ const QuizTaking = () => {
             await api.post('/submissions/complete', {
                 submissionId: submission.id
             });
-            // Emit socket event for real-time update (optional, backend already emits)
-            // socket.emit('quizResultsUpdated', { quizId: quizId });
             alert('Time is up! Quiz has been automatically submitted.');
             navigate('/student/history');
         } catch (err) {}
@@ -239,12 +266,18 @@ const QuizTaking = () => {
                                     <small className="text-muted">{progress}% completed</small>
                                 </div>
                                 <div className="col-md-4 text-end">
+                                    {/* Whole quiz timer */}
                                     {timeRemaining > 0 && (
                                         <div className={`h4 mb-0 ${getTimeWarningClass()}`}>
                                             <i className="fas fa-clock me-2"></i>
                                             {formatTime(timeRemaining)}
                                         </div>
                                     )}
+                                    {/* Per-question timer */}
+                                    <div className="h6 mt-2 text-warning">
+                                        <i className="fas fa-stopwatch me-2"></i>
+                                        Time left for this question: {questionTimeLeft}s
+                                    </div>
                                 </div>
                             </div>
                         </div>
