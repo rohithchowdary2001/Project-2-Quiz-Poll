@@ -17,41 +17,38 @@ const QuizResults = () => {
 
     useEffect(() => {
         socket.on('connect', () => {
-            console.log('Socket.IO connected:', socket.id);
+            console.log('Socket.IO connected in QuizResults:', socket.id);
         });
         socket.on('disconnect', () => {
-            console.log('Socket.IO disconnected');
+            console.log('Socket.IO disconnected in QuizResults');
+        });
+        socket.on('connect_error', (error) => {
+            console.error('Socket connection error in QuizResults:', error);
         });
         return () => {
             socket.off('connect');
             socket.off('disconnect');
+            socket.off('connect_error');
         };
     }, []);
-useEffect(() => {
-    socket.emit('joinQuizResults', quizId); // Join the room for this quiz
-}, [quizId]);
+    useEffect(() => {
+        console.log('Setting up quiz results listener for quiz:', quizId);
+        // Note: Not joining rooms since socket connection has issues
+        // socket.emit('joinQuizResults', quizId);
+    }, [quizId]);
 
-useEffect(() => {
-    socket.on('quizResultsUpdated', (data) => {
-        if (String(data.quizId) === String(quizId)) {
-            fetchQuizResults(); // Refresh results
-        }
-    });
-    return () => {
-        socket.off('quizResultsUpdated');
-    };
-}, [quizId, sortBy, sortOrder]);
-
-useEffect(() => {
-    socket.on('quizResultsUpdated', (data) => {
-        if (String(data.quizId) === String(quizId)) {
-            fetchQuizResults(); // This should refresh the results
-        }
-    });
-    return () => {
-        socket.off('quizResultsUpdated');
-    };
-}, [quizId, sortBy, sortOrder]);
+    useEffect(() => {
+        socket.on('quizResultsUpdated', (data) => {
+            console.log('Received quizResultsUpdated:', data);
+            if (String(data.quizId) === String(quizId)) {
+                console.log('Refreshing quiz results for quiz:', quizId);
+                fetchQuizResults(); // This should refresh the results
+            }
+        });
+        return () => {
+            socket.off('quizResultsUpdated');
+        };
+    }, [quizId, sortBy, sortOrder]);
     useEffect(() => {
         if (quizId) {
             fetchQuizResults();

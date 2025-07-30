@@ -24,6 +24,25 @@ const QuizTaking = () => {
         if (quizId) {
             startQuiz();
         }
+        
+        // Add socket connection logging
+        socket.on('connect', () => {
+            console.log('Socket connected in QuizTaking:', socket.id);
+        });
+        
+        socket.on('disconnect', () => {
+            console.log('Socket disconnected in QuizTaking');
+        });
+        
+        socket.on('connect_error', (error) => {
+            console.error('Socket connection error in QuizTaking:', error);
+        });
+        
+        return () => {
+            socket.off('connect');
+            socket.off('disconnect');
+            socket.off('connect_error');
+        };
     }, [quizId]);
 
     useEffect(() => {
@@ -98,43 +117,35 @@ const QuizTaking = () => {
     };
 
     const handleAnswerSelect = async (questionId, optionId) => {
-        try {
-            await api.post('/submissions/answer', {
-                submissionId: submission.id,
-                questionId: questionId,
-                selectedOptionId: optionId
-            });
-            setAnswers({
-                ...answers,
-                [questionId]: optionId
-            });
-        } catch (err) {
-            setError(err.response?.data?.message || 'Failed to submit answer');
-        }
+        // Just update local state - don't submit to server yet
+        setAnswers({
+            ...answers,
+            [questionId]: optionId
+        });
+        
+        console.log('Answer selected locally for question:', questionId, 'option:', optionId);
     };
 
     const handleNextQuestion = async () => {
         const currentQuestion = quiz.questions[currentQuestionIndex];
         const answer = answers[currentQuestion.id];
 
-        // Only submit if an answer exists
+        // Submit the answer when moving to next question
         if (submission && answer !== undefined && answer !== '') {
             try {
+                console.log('Submitting answer when moving to next question:', currentQuestion.id, 'answer:', answer);
+                
                 await api.post('/submissions/answer', {
                     submissionId: submission.id,
                     questionId: currentQuestion.id,
                     selectedOptionId: answer
                 });
 
-                // Emit answer update for real-time professor dashboard
-                socket.emit('studentAnswerUpdate', {
-                    submissionId: submission.id,
-                    quizId: quizId,
-                    questionId: currentQuestion.id,
-                    selectedOptionId: answer
-                });
+                console.log('Answer submitted successfully for question:', currentQuestion.id);
             } catch (err) {
+                console.error('Failed to submit answer:', err);
                 setError(err.response?.data?.message || 'Failed to submit answer');
+                return; // Don't move to next question if submission failed
             }
         }
 
@@ -144,13 +155,55 @@ const QuizTaking = () => {
         }
     };
 
-    const handlePreviousQuestion = () => {
+    const handlePreviousQuestion = async () => {
+        const currentQuestion = quiz.questions[currentQuestionIndex];
+        const answer = answers[currentQuestion.id];
+
+        // Submit the current question's answer before going back
+        if (submission && answer !== undefined && answer !== '') {
+            try {
+                console.log('Submitting answer before going to previous question:', currentQuestion.id);
+                
+                await api.post('/submissions/answer', {
+                    submissionId: submission.id,
+                    questionId: currentQuestion.id,
+                    selectedOptionId: answer
+                });
+
+                console.log('Answer submitted successfully before going back');
+            } catch (err) {
+                console.error('Failed to submit answer before going back:', err);
+                setError(err.response?.data?.message || 'Failed to submit answer');
+            }
+        }
+
         if (currentQuestionIndex > 0) {
             setCurrentQuestionIndex(currentQuestionIndex - 1);
         }
     };
 
-    const handleQuestionJump = (index) => {
+    const handleQuestionJump = async (index) => {
+        const currentQuestion = quiz.questions[currentQuestionIndex];
+        const answer = answers[currentQuestion.id];
+
+        // Submit the current question's answer before jumping
+        if (submission && answer !== undefined && answer !== '') {
+            try {
+                console.log('Submitting answer before jumping from question:', currentQuestion.id, 'to question:', index + 1);
+                
+                await api.post('/submissions/answer', {
+                    submissionId: submission.id,
+                    questionId: currentQuestion.id,
+                    selectedOptionId: answer
+                });
+
+                console.log('Answer submitted successfully before jumping');
+            } catch (err) {
+                console.error('Failed to submit answer before jumping:', err);
+                setError(err.response?.data?.message || 'Failed to submit answer');
+            }
+        }
+
         setCurrentQuestionIndex(index);
     };
 

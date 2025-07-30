@@ -205,9 +205,20 @@ class SubmissionController {
         question_id: questionId,
       }
     );
+    console.log('Answer updated for question:', questionId, 'submission:', submissionId);
+    
+    // Emit socket event for answer updates - using global broadcast
+    if (global.io) {
+      console.log('Emitting global socket event for answer update - quiz:', submissionInfo.quiz_id);
+      global.io.emit('quizResultsUpdated', {
+        quizId: submissionInfo.quiz_id,
+        questionId: questionId,
+        submissionId: submissionId,
+        type: 'answer_updated'
+      });
+    }
 } else {
-    // CHANGE THIS BLOCK:
-    // await database.insertOrUpdate("student_answers", {...});
+    // Insert new answer
     await database.insert("student_answers", {
       submission_id: submissionId,
       question_id: questionId,
@@ -215,10 +226,18 @@ class SubmissionController {
       is_correct: isCorrect,
       answered_at: new Date(),
     });
-    global.io.to(`quiz_${submissionInfo.quiz_id}_professors`).emit('quizResultsUpdated', {
-      quizId: submissionInfo.quiz_id,
-      questionId: questionId
-    });
+    console.log('New answer inserted for question:', questionId, 'submission:', submissionId);
+    
+    // Emit socket event for new answers - using global broadcast
+    if (global.io) {
+      console.log('Emitting global socket event for new answer - quiz:', submissionInfo.quiz_id);
+      global.io.emit('quizResultsUpdated', {
+        quizId: submissionInfo.quiz_id,
+        questionId: questionId,
+        submissionId: submissionId,
+        type: 'answer_submitted'
+      });
+    }
 }
 
       res.json({
