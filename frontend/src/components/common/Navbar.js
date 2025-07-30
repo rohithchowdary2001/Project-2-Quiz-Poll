@@ -6,6 +6,7 @@ const Navbar = () => {
   const { user, logout } = useAuth();
   const location = useLocation();
 
+  // Don't show navbar on login/register pages or when not authenticated
   if (!user || location.pathname === '/login' || location.pathname === '/register') {
     return null;
   }
@@ -16,6 +17,7 @@ const Navbar = () => {
 
   const handleLogout = async () => {
     await logout();
+    // Redirect to login page after logout
     window.location.href = '/login';
   };
 
