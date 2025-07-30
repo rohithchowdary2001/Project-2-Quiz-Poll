@@ -1,415 +1,721 @@
-import React, { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
-import { api, endpoints, apiUtils } from '../../services/api';
-import LoadingSpinner from '../../components/common/LoadingSpinner';
-import { toast } from 'react-toastify';
+import React, { useState, useEffect } from "react";
+import { useAuth } from "../../context/AuthContext";
+import api from "../../services/api";
+import socket from "../../services/socket";
 
-const QuizResults = () => {
-  const { id } = useParams();
-  const [quizData, setQuizData] = useState(null);
-  const [results, setResults] = useState([]);
-  const [answerStatistics, setAnswerStatistics] = useState([]);
+const QuizManagement = () => {
+  const { user } = useAuth();
+  const [quizzes, setQuizzes] = useState([]);
+  const [classes, setClasses] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [sortBy, setSortBy] = useState('score');
-  const [sortOrder, setSortOrder] = useState('desc');
-  const [exporting, setExporting] = useState(false);
+  const [error, setError] = useState("");
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showCopyModal, setShowCopyModal] = useState(false);
+  const [selectedQuiz, setSelectedQuiz] = useState(null);
+  const [targetClassId, setTargetClassId] = useState("");
+  const [selectedClassId, setSelectedClassId] = useState("");
+  const [quizForm, setQuizForm] = useState({
+    title: "",
+    description: "",
+    classId: "",
+    deadline: "",
+    questions: [
+      {
+        questionText: "",
+        questionType: "single_choice",
+        points: 1,
+        options: [
+          { text: "", isCorrect: false },
+          { text: "", isCorrect: false },
+        ],
+        questionTimeLimit: 30, // seconds, default
+      },
+    ],
+  });
 
   useEffect(() => {
-    fetchQuizResults();
-  }, [id]);
+    socket.on("quizResultsUpdated", (data) => {
+      if (quizzes.some((q) => String(q.id) === String(data.quizId))) {
+        fetchQuizzes();
+      }
+    });
+    return () => {
+      socket.off("quizResultsUpdated");
+    };
+  }, [quizzes]);
 
-  const fetchQuizResults = async () => {
+  useEffect(() => {
+    fetchQuizzes();
+    fetchClasses();
+  }, []);
+
+  useEffect(() => {
+    if (selectedClassId) {
+      fetchQuizzes();
+    }
+  }, [selectedClassId]);
+
+  const fetchQuizzes = async () => {
     try {
       setLoading(true);
-      const response = await api.get(endpoints.quizzes.results(id));
-      setQuizData(response.quiz);
-      setResults(response.results);
-      setAnswerStatistics(response.answerStatistics);
+      const params = selectedClassId
+        ? `?classId=${selectedClassId}&sortBy=created_at&sortOrder=DESC`
+        : "?sortBy=created_at&sortOrder=DESC";
+      const response = await api.get(`/quizzes${params}`);
+      setQuizzes(response.data.quizzes || []);
+      setError("");
     } catch (err) {
-      setError(err.message);
+      setError(err.response?.data?.message || "Failed to fetch quizzes");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleExportCSV = async () => {
+  const fetchClasses = async () => {
     try {
-      setExporting(true);
-      
-      // Prepare CSV data
-      const csvData = results.map(result => ({
-        'Student Name': result.studentName,
-        'Student Email': result.studentEmail,
-        'Score': result.totalScore,
-        'Max Score': result.maxScore,
-        'Percentage': result.percentage + '%',
-        'Time Taken (minutes)': result.timeTakenMinutes,
-        'Started At': new Date(result.startedAt).toLocaleString(),
-        'Submitted At': new Date(result.submittedAt).toLocaleString(),
-        'Status': result.isCompleted ? 'Completed' : 'In Progress'
-      }));
-
-      // Convert to CSV format
-      const csvContent = convertToCSV(csvData);
-      
-      // Create and download file
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `${quizData.title}_results_${new Date().toISOString().split('T')[0]}.csv`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
-      
-      toast.success('Quiz results exported successfully!');
-    } catch (error) {
-      console.error('Export error:', error);
-      toast.error('Failed to export quiz results');
-    } finally {
-      setExporting(false);
+      const response = await api.get("/classes");
+      setClasses(response.data.classes || []);
+    } catch (err) {
+      setError(err.response?.data?.message || "Failed to fetch classes");
     }
   };
 
-  const convertToCSV = (data) => {
-    if (!data.length) return '';
-    
-    const headers = Object.keys(data[0]);
-    const csvContent = [
-      headers.join(','),
-      ...data.map(row => 
-        headers.map(header => {
-          const value = row[header];
-          // Escape commas and quotes in values
-          return typeof value === 'string' && (value.includes(',') || value.includes('"')) 
-            ? `"${value.replace(/"/g, '""')}"` 
-            : value;
-        }).join(',')
-      )
-    ].join('\n');
-    
-    return csvContent;
-  };
-
-  const sortResults = (column) => {
-    if (sortBy === column) {
-      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortBy(column);
-      setSortOrder('desc');
+  const handleCreateQuiz = async (e) => {
+    e.preventDefault();
+    try {
+      if (!quizForm.title || !quizForm.classId) {
+        setError("Title and class are required");
+        return;
+      }
+      if (quizForm.questions.length === 0) {
+        setError("At least one question is required");
+        return;
+      }
+      for (let i = 0; i < quizForm.questions.length; i++) {
+        const question = quizForm.questions[i];
+        if (!question.questionText.trim()) {
+          setError(`Question ${i + 1} text is required`);
+          return;
+        }
+        if (question.options.length < 2) {
+          setError(`Question ${i + 1} must have at least 2 options`);
+          return;
+        }
+        if (!question.options.some((opt) => opt.isCorrect)) {
+          setError(`Question ${i + 1} must have at least one correct answer`);
+          return;
+        }
+        if (!question.questionTimeLimit || question.questionTimeLimit < 5) {
+          setError(`Question ${i + 1} must have a time limit of at least 5 seconds`);
+          return;
+        }
+      }
+      const response = await api.post("/quizzes", {
+        title: quizForm.title,
+        description: quizForm.description,
+        classId: quizForm.classId,
+        deadline: quizForm.deadline || null,
+        questions: quizForm.questions,
+      });
+      setShowCreateModal(false);
+      resetQuizForm();
+      fetchQuizzes();
+      alert("Quiz created successfully!");
+    } catch (err) {
+      setError(err.response?.data?.message || "Failed to create quiz");
     }
   };
 
-  const getSortedResults = () => {
-    return [...results].sort((a, b) => {
-      let aValue = a[sortBy];
-      let bValue = b[sortBy];
-      
-      // Handle different data types
-      if (typeof aValue === 'string') {
-        aValue = aValue.toLowerCase();
-        bValue = bValue.toLowerCase();
-      }
-      
-      if (sortOrder === 'asc') {
-        return aValue > bValue ? 1 : -1;
-      } else {
-        return aValue < bValue ? 1 : -1;
-      }
+  const handleDeleteQuiz = async (quizId, quizTitle) => {
+    if (!window.confirm(`Are you sure you want to delete "${quizTitle}"?`)) {
+      return;
+    }
+    try {
+      await api.delete(`/quizzes/${quizId}`);
+      fetchQuizzes();
+      alert("Quiz deleted successfully!");
+    } catch (err) {
+      alert(err.response?.data?.message || "Failed to delete quiz");
+    }
+  };
+
+  const handleCopyQuiz = async () => {
+    if (!selectedQuiz || !targetClassId) return;
+    try {
+      await api.post(`/quizzes/${selectedQuiz.id}/copy`, { targetClassId });
+      setShowCopyModal(false);
+      setTargetClassId("");
+      setSelectedQuiz(null);
+      fetchQuizzes();
+      alert("Quiz copied successfully!");
+    } catch (err) {
+      alert(err.response?.data?.message || "Failed to copy quiz");
+    }
+  };
+
+  const addQuestion = () => {
+    setQuizForm({
+      ...quizForm,
+      questions: [
+        ...quizForm.questions,
+        {
+          questionText: "",
+          questionType: "single_choice",
+          points: 1,
+          options: [
+            { text: "", isCorrect: false },
+            { text: "", isCorrect: false },
+          ],
+          questionTimeLimit: 30, // default per-question time limit
+        },
+      ],
     });
   };
 
-  const getSortIcon = (column) => {
-    if (sortBy !== column) return 'bi-arrow-down-up';
-    return sortOrder === 'asc' ? 'bi-arrow-up' : 'bi-arrow-down';
+  const removeQuestion = (questionIndex) => {
+    const newQuestions = quizForm.questions.filter(
+      (_, index) => index !== questionIndex
+    );
+    setQuizForm({ ...quizForm, questions: newQuestions });
   };
 
-  const getPerformanceColor = (percentage) => {
-    if (percentage >= 80) return 'text-success';
-    if (percentage >= 60) return 'text-warning';
-    return 'text-danger';
+  const updateQuestion = (questionIndex, field, value) => {
+    const newQuestions = [...quizForm.questions];
+    newQuestions[questionIndex][field] = value;
+    setQuizForm({ ...quizForm, questions: newQuestions });
   };
 
-  if (loading) return <LoadingSpinner text="Loading quiz results..." />;
-  if (error) return <div className="alert alert-danger">Error: {error}</div>;
+  const addOption = (questionIndex) => {
+    const newQuestions = [...quizForm.questions];
+    newQuestions[questionIndex].options.push({ text: "", isCorrect: false });
+    setQuizForm({ ...quizForm, questions: newQuestions });
+  };
 
-  const averageScore = results.length > 0 ? 
-    (results.reduce((sum, result) => sum + result.percentage, 0) / results.length).toFixed(1) : 0;
-  
-  const completionRate = results.length > 0 ? 
-    ((results.filter(result => result.isCompleted).length / results.length) * 100).toFixed(1) : 0;
+  const removeOption = (questionIndex, optionIndex) => {
+    const newQuestions = [...quizForm.questions];
+    newQuestions[questionIndex].options = newQuestions[
+      questionIndex
+    ].options.filter((_, index) => index !== optionIndex);
+    setQuizForm({ ...quizForm, questions: newQuestions });
+  };
 
-  return (
-    <div className="container-fluid">
-      <div className="row">
-        <div className="col-12">
-          <div className="d-flex justify-content-between align-items-center mb-4">
-            <div>
-              <h1 className="h3 mb-0">Quiz Results: {quizData?.title}</h1>
-              <p className="text-muted">Detailed performance analysis and statistics</p>
-            </div>
-            <button
-              onClick={handleExportCSV}
-              className="btn btn-success"
-              disabled={exporting || results.length === 0}
-            >
-              {exporting ? (
-                <>
-                  <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-                  Exporting...
-                </>
-              ) : (
-                <>
-                  <i className="bi bi-download me-2"></i>
-                  Export CSV
-                </>
-              )}
-            </button>
+  const updateOption = (questionIndex, optionIndex, field, value) => {
+    const newQuestions = [...quizForm.questions];
+    newQuestions[questionIndex].options[optionIndex][field] = value;
+    setQuizForm({ ...quizForm, questions: newQuestions });
+  };
+
+  const resetQuizForm = () => {
+    setQuizForm({
+      title: "",
+      description: "",
+      classId: "",
+      deadline: "",
+      questions: [
+        {
+          questionText: "",
+          questionType: "single_choice",
+          points: 1,
+          options: [
+            { text: "", isCorrect: false },
+            { text: "", isCorrect: false },
+          ],
+          questionTimeLimit: 30,
+        },
+      ],
+    });
+  };
+
+  const formatDate = (dateString) => {
+    if (!dateString) return "No deadline";
+    return new Date(dateString).toLocaleString();
+  };
+
+  const getStatusBadge = (quiz) => {
+    const now = new Date();
+    const deadline = quiz.deadline ? new Date(quiz.deadline) : null;
+    if (deadline && now > deadline) {
+      return <span className="badge bg-danger">Expired</span>;
+    }
+    return <span className="badge bg-success">Active</span>;
+  };
+
+  if (loading) {
+    return (
+      <div className="container mt-4">
+        <div className="d-flex justify-content-center">
+          <div className="spinner-border text-primary" role="status">
+            <span className="visually-hidden">Loading...</span>
           </div>
-
-          {/* Summary Statistics */}
-          <div className="row mb-4">
-            <div className="col-xl-3 col-md-6 mb-4">
-              <div className="card border-left-primary shadow h-100 py-2">
-                <div className="card-body">
-                  <div className="row no-gutters align-items-center">
-                    <div className="col mr-2">
-                      <div className="text-xs font-weight-bold text-primary text-uppercase mb-1">
-                        Total Submissions
-                      </div>
-                      <div className="h5 mb-0 font-weight-bold text-gray-800">
-                        {quizData?.totalSubmissions || 0}
-                      </div>
-                    </div>
-                    <div className="col-auto">
-                      <i className="bi bi-clipboard-check text-primary" style={{ fontSize: '2rem' }}></i>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="col-xl-3 col-md-6 mb-4">
-              <div className="card border-left-success shadow h-100 py-2">
-                <div className="card-body">
-                  <div className="row no-gutters align-items-center">
-                    <div className="col mr-2">
-                      <div className="text-xs font-weight-bold text-success text-uppercase mb-1">
-                        Average Score
-                      </div>
-                      <div className="h5 mb-0 font-weight-bold text-gray-800">
-                        {averageScore}%
-                      </div>
-                    </div>
-                    <div className="col-auto">
-                      <i className="bi bi-trophy text-success" style={{ fontSize: '2rem' }}></i>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="col-xl-3 col-md-6 mb-4">
-              <div className="card border-left-info shadow h-100 py-2">
-                <div className="card-body">
-                  <div className="row no-gutters align-items-center">
-                    <div className="col mr-2">
-                      <div className="text-xs font-weight-bold text-info text-uppercase mb-1">
-                        Completion Rate
-                      </div>
-                      <div className="h5 mb-0 font-weight-bold text-gray-800">
-                        {completionRate}%
-                      </div>
-                    </div>
-                    <div className="col-auto">
-                      <i className="bi bi-percent text-info" style={{ fontSize: '2rem' }}></i>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="col-xl-3 col-md-6 mb-4">
-              <div className="card border-left-warning shadow h-100 py-2">
-                <div className="card-body">
-                  <div className="row no-gutters align-items-center">
-                    <div className="col mr-2">
-                      <div className="text-xs font-weight-bold text-warning text-uppercase mb-1">
-                        Highest Score
-                      </div>
-                      <div className="h5 mb-0 font-weight-bold text-gray-800">
-                        {results.length > 0 ? Math.max(...results.map(r => r.percentage)) : 0}%
-                      </div>
-                    </div>
-                    <div className="col-auto">
-                      <i className="bi bi-star text-warning" style={{ fontSize: '2rem' }}></i>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Results Table */}
-          <div className="card shadow mb-4">
-            <div className="card-header py-3">
-              <h6 className="m-0 font-weight-bold text-primary">Student Results</h6>
-            </div>
-            <div className="card-body">
-              {results.length > 0 ? (
-                <div className="table-responsive">
-                  <table className="table table-hover">
-                    <thead>
-                      <tr>
-                        <th 
-                          className="sortable" 
-                          onClick={() => sortResults('studentName')}
-                          style={{ cursor: 'pointer' }}
-                        >
-                          Student Name <i className={`bi ${getSortIcon('studentName')}`}></i>
-                        </th>
-                        <th>Email</th>
-                        <th 
-                          className="sortable" 
-                          onClick={() => sortResults('percentage')}
-                          style={{ cursor: 'pointer' }}
-                        >
-                          Score <i className={`bi ${getSortIcon('percentage')}`}></i>
-                        </th>
-                        <th 
-                          className="sortable" 
-                          onClick={() => sortResults('timeTakenMinutes')}
-                          style={{ cursor: 'pointer' }}
-                        >
-                          Time Taken <i className={`bi ${getSortIcon('timeTakenMinutes')}`}></i>
-                        </th>
-                        <th 
-                          className="sortable" 
-                          onClick={() => sortResults('submittedAt')}
-                          style={{ cursor: 'pointer' }}
-                        >
-                          Submitted At <i className={`bi ${getSortIcon('submittedAt')}`}></i>
-                        </th>
-                        <th>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {getSortedResults().map((result, index) => (
-                        <tr key={index}>
-                          <td>
-                            <div className="d-flex align-items-center">
-                              <div className="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center me-3" 
-                                   style={{ width: '32px', height: '32px' }}>
-                                {result.studentName.charAt(0).toUpperCase()}
-                              </div>
-                              {result.studentName}
-                            </div>
-                          </td>
-                          <td>{result.studentEmail}</td>
-                          <td>
-                            <span className={`fw-bold ${getPerformanceColor(result.percentage)}`}>
-                              {result.percentage}%
-                            </span>
-                            <div className="small text-muted">
-                              {result.totalScore}/{result.maxScore} points
-                            </div>
-                          </td>
-                          <td>{result.timeTakenMinutes} minutes</td>
-                          <td>{new Date(result.submittedAt).toLocaleString()}</td>
-                          <td>
-                            <span className={`badge ${result.isCompleted ? 'bg-success' : 'bg-warning'}`}>
-                              {result.isCompleted ? 'Completed' : 'In Progress'}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <div className="text-center py-4">
-                  <i className="bi bi-clipboard-x text-muted mb-3" style={{ fontSize: '3rem' }}></i>
-                  <p className="text-muted">No submissions yet</p>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Answer Statistics */}
-          {answerStatistics.length > 0 && (
-            <div className="card shadow">
-              <div className="card-header py-3">
-                <h6 className="m-0 font-weight-bold text-primary">Answer Statistics</h6>
-              </div>
-              <div className="card-body">
-                <div className="accordion" id="questionAccordion">
-                  {answerStatistics.reduce((acc, stat) => {
-                    const existingQuestion = acc.find(q => q.questionId === stat.question_id);
-                    if (existingQuestion) {
-                      existingQuestion.options.push(stat);
-                    } else {
-                      acc.push({
-                        questionId: stat.question_id,
-                        questionText: stat.question_text,
-                        questionOrder: stat.question_order,
-                        options: [stat]
-                      });
-                    }
-                    return acc;
-                  }, []).map((question, index) => (
-                    <div key={question.questionId} className="accordion-item">
-                      <h2 className="accordion-header" id={`heading${index}`}>
-                        <button
-                          className="accordion-button collapsed"
-                          type="button"
-                          data-bs-toggle="collapse"
-                          data-bs-target={`#collapse${index}`}
-                          aria-expanded="false"
-                          aria-controls={`collapse${index}`}
-                        >
-                          Question {question.questionOrder}: {question.questionText}
-                        </button>
-                      </h2>
-                      <div
-                        id={`collapse${index}`}
-                        className="accordion-collapse collapse"
-                        aria-labelledby={`heading${index}`}
-                        data-bs-parent="#questionAccordion"
-                      >
-                        <div className="accordion-body">
-                          {question.options.map((option, optIndex) => (
-                            <div key={optIndex} className="mb-2">
-                              <div className="d-flex justify-content-between align-items-center mb-1">
-                                <span className={option.is_correct ? 'fw-bold text-success' : ''}>
-                                  {option.option_text}
-                                  {option.is_correct && <i className="bi bi-check-circle-fill text-success ms-2"></i>}
-                                </span>
-                                <span className="text-muted">
-                                  {option.selection_count} selections ({option.percentage}%)
-                                </span>
-                              </div>
-                              <div className="progress" style={{ height: '8px' }}>
-                                <div 
-                                  className={`progress-bar ${option.is_correct ? 'bg-success' : 'bg-primary'}`}
-                                  style={{ width: `${option.percentage}%` }}
-                                ></div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
         </div>
       </div>
+    );
+  }
+
+  return (
+    <div className="container mt-4">
+      <div className="d-flex justify-content-between align-items-center mb-4">
+        <h2>Quiz Management</h2>
+        <div>
+          <button
+            className="btn btn-success me-2"
+            onClick={() => setShowCreateModal(true)}
+          >
+            <i className="fas fa-plus me-2"></i>
+            Create Quiz
+          </button>
+          <button className="btn btn-primary" onClick={fetchQuizzes}>
+            <i className="fas fa-sync-alt me-2"></i>
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      {/* Class Filter */}
+      <div className="row mb-4">
+        <div className="col-md-4">
+          <select
+            className="form-select"
+            value={selectedClassId}
+            onChange={(e) => setSelectedClassId(e.target.value)}
+          >
+            <option value="">All Classes</option>
+            {classes.map((cls) => (
+              <option key={cls.id} value={cls.id}>
+                {cls.name} ({cls.class_code})
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {error && (
+        <div
+          className="alert alert-danger alert-dismissible fade show"
+          role="alert"
+        >
+          <i className="fas fa-exclamation-triangle me-2"></i>
+          {error}
+          <button
+            type="button"
+            className="btn-close"
+            onClick={() => setError("")}
+          ></button>
+        </div>
+      )}
+
+      {quizzes.length === 0 ? (
+        <div className="alert alert-info">
+          <i className="fas fa-info-circle me-2"></i>
+          No quizzes found. Create your first quiz to get started!
+        </div>
+      ) : (
+        <div className="card">
+          <div className="card-header">
+            <h5 className="mb-0">Your Quizzes ({quizzes.length})</h5>
+          </div>
+          <div className="card-body">
+            <div className="table-responsive">
+              <table className="table table-striped">
+                <thead>
+                  <tr>
+                    <th>Title</th>
+                    <th>Class</th>
+                    <th>Questions</th>
+                    <th>Submissions</th>
+                    <th>Deadline</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {quizzes.map((quiz) => (
+                    <tr key={quiz.id}>
+                      <td>
+                        <div className="fw-bold d-flex align-items-center">
+                          {quiz.title}
+                          {/* COPY BUTTON */}
+                          <button
+                            className="btn btn-sm btn-outline-warning ms-2"
+                            title="Copy Quiz"
+                            onClick={() => {
+                              setSelectedQuiz(quiz);
+                              setShowCopyModal(true);
+                            }}
+                          >
+                            <i className="fas fa-copy me-1"></i>
+                            Copy
+                          </button>
+                        </div>
+                        <small className="text-muted">{quiz.description}</small>
+                      </td>
+                      <td>
+                        <span className="badge bg-light text-dark">
+                          {quiz.class_name}
+                        </span>
+                      </td>
+                      <td>{quiz.question_count || 0}</td>
+                      <td>{quiz.submission_count || 0}</td>
+                      <td>{formatDate(quiz.deadline)}</td>
+                      <td>{getStatusBadge(quiz)}</td>
+                      <td>
+                        <div className="btn-group" role="group">
+                          <a
+                            href={`/professor/quiz-results/${quiz.id}`}
+                            className="btn btn-sm btn-outline-primary"
+                          >
+                            <i className="fas fa-chart-bar me-1"></i>
+                            More...
+                          </a>
+                          <button
+                            className="btn btn-sm btn-outline-danger"
+                            onClick={() =>
+                              handleDeleteQuiz(quiz.id, quiz.title)
+                            }
+                          >
+                            <i className="fas fa-trash me-1"></i>
+                            Delete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create Quiz Modal */}
+      {showCreateModal && (
+        <div
+          className="modal fade show"
+          style={{ display: "block", backgroundColor: "rgba(0,0,0,0.5)" }}
+        >
+          <div className="modal-dialog modal-lg">
+            <div className="modal-content">
+              <div className="modal-header">
+                <h5 className="modal-title">Create New Quiz</h5>
+                <button
+                  type="button"
+                  className="btn-close"
+                  onClick={() => setShowCreateModal(false)}
+                ></button>
+              </div>
+              <form onSubmit={handleCreateQuiz}>
+                <div
+                  className="modal-body"
+                  style={{ maxHeight: "70vh", overflowY: "auto" }}
+                >
+                  {/* Quiz Details */}
+                  <div className="mb-4">
+                    <h6>Quiz Details</h6>
+                    <div className="row">
+                      <div className="col-md-6 mb-3">
+                        <label className="form-label">Title</label>
+                        <input
+                          type="text"
+                          className="form-control"
+                          value={quizForm.title}
+                          onChange={(e) =>
+                            setQuizForm({ ...quizForm, title: e.target.value })
+                          }
+                          required
+                          placeholder="Enter quiz title"
+                        />
+                      </div>
+                      <div className="col-md-6 mb-3">
+                        <label className="form-label">Class</label>
+                        <select
+                          className="form-select"
+                          value={quizForm.classId}
+                          onChange={(e) =>
+                            setQuizForm({
+                              ...quizForm,
+                              classId: e.target.value,
+                            })
+                          }
+                          required
+                        >
+                          <option value="">Select a class</option>
+                          {classes.map((cls) => (
+                            <option key={cls.id} value={cls.id}>
+                              {cls.name} ({cls.class_code})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="col-md-6 mb-3">
+                        <label className="form-label">
+                          Deadline (Optional)
+                        </label>
+                        <input
+                          type="datetime-local"
+                          className="form-control"
+                          value={quizForm.deadline}
+                          onChange={(e) =>
+                            setQuizForm({
+                              ...quizForm,
+                              deadline: e.target.value,
+                            })
+                          }
+                        />
+                      </div>
+                      <div className="col-12 mb-3">
+                        <label className="form-label">Description</label>
+                        <textarea
+                          className="form-control"
+                          rows="3"
+                          value={quizForm.description}
+                          onChange={(e) =>
+                            setQuizForm({
+                              ...quizForm,
+                              description: e.target.value,
+                            })
+                          }
+                          placeholder="Enter quiz description (optional)"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Questions */}
+                  <div className="mb-4">
+                    <div className="d-flex justify-content-between align-items-center mb-3">
+                      <h6>Questions</h6>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-success"
+                        onClick={addQuestion}
+                      >
+                        <i className="fas fa-plus me-1"></i>
+                        Add Question
+                      </button>
+                    </div>
+
+                    {quizForm.questions.map((question, questionIndex) => (
+                      <div key={questionIndex} className="card mb-3">
+                        <div className="card-header">
+                          <div className="d-flex justify-content-between align-items-center">
+                            <h6 className="mb-0">
+                              Question {questionIndex + 1}
+                            </h6>
+                            {quizForm.questions.length > 1 && (
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-outline-danger"
+                                onClick={() => removeQuestion(questionIndex)}
+                              >
+                                <i className="fas fa-trash"></i>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        <div className="card-body">
+                          <div className="row mb-3">
+                            <div className="col-md-8">
+                              <label className="form-label">
+                                Question Text
+                              </label>
+                              <textarea
+                                className="form-control"
+                                rows="2"
+                                value={question.questionText}
+                                onChange={(e) =>
+                                  updateQuestion(
+                                    questionIndex,
+                                    "questionText",
+                                    e.target.value
+                                  )
+                                }
+                                required
+                                placeholder="Enter your question"
+                              />
+                            </div>
+                            <div className="col-md-4">
+                              <label className="form-label">Points</label>
+                              <input
+                                type="number"
+                                className="form-control"
+                                value={question.points}
+                                onChange={(e) =>
+                                  updateQuestion(
+                                    questionIndex,
+                                    "points",
+                                    parseInt(e.target.value)
+                                  )
+                                }
+                                min="1"
+                                max="10"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="mb-3">
+                            <div className="d-flex justify-content-between align-items-center mb-2">
+                              <label className="form-label">
+                                Answer Options
+                              </label>
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-outline-success"
+                                onClick={() => addOption(questionIndex)}
+                              >
+                                <i className="fas fa-plus me-1"></i>
+                                Add Option
+                              </button>
+                            </div>
+
+                            {question.options.map((option, optionIndex) => (
+                              <div
+                                key={optionIndex}
+                                className="input-group mb-2"
+                              >
+                                <div className="input-group-text">
+                                  <input
+                                    type="checkbox"
+                                    checked={option.isCorrect}
+                                    onChange={(e) =>
+                                      updateOption(
+                                        questionIndex,
+                                        optionIndex,
+                                        "isCorrect",
+                                        e.target.checked
+                                      )
+                                    }
+                                    title="Mark as correct answer"
+                                  />
+                                </div>
+                                <input
+                                  type="text"
+                                  className="form-control"
+                                  value={option.text}
+                                  onChange={(e) =>
+                                    updateOption(
+                                      questionIndex,
+                                      optionIndex,
+                                      "text",
+                                      e.target.value
+                                    )
+                                  }
+                                  placeholder={`Option ${optionIndex + 1}`}
+                                  required
+                                />
+                                {question.options.length > 2 && (
+                                  <button
+                                    type="button"
+                                    className="btn btn-outline-danger"
+                                    onClick={() =>
+                                      removeOption(questionIndex, optionIndex)
+                                    }
+                                  >
+                                    <i className="fas fa-trash"></i>
+                                  </button>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                          {/* Per-question time limit input */}
+                          <div className="mb-2">
+                            <label className="form-label">
+                              Time Limit (seconds)
+                            </label>
+                            <input
+                              type="number"
+                              className="form-control"
+                              value={question.questionTimeLimit}
+                              onChange={(e) =>
+                                updateQuestion(
+                                  questionIndex,
+                                  "questionTimeLimit",
+                                  parseInt(e.target.value)
+                                )
+                              }
+                              min="5"
+                              max="600"
+                              required
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="modal-footer">
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => setShowCreateModal(false)}
+                  >
+                    Cancel
+                  </button>
+                  <button type="submit" className="btn btn-primary">
+                    Create Quiz
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Copy Quiz Modal */}
+      {showCopyModal && selectedQuiz && (
+        <div
+          className="modal fade show"
+          style={{ display: "block", backgroundColor: "rgba(0,0,0,0.5)" }}
+        >
+          <div className="modal-dialog">
+            <div className="modal-content">
+              <div className="modal-header">
+                <h5 className="modal-title">
+                  Copy Quiz - {selectedQuiz.title}
+                </h5>
+                <button
+                  type="button"
+                  className="btn-close"
+                  onClick={() => setShowCopyModal(false)}
+                ></button>
+              </div>
+              <div className="modal-body">
+                <label>Select target class:</label>
+                <select
+                  className="form-select"
+                  value={targetClassId}
+                  onChange={(e) => setTargetClassId(e.target.value)}
+                >
+                  <option value="">Select a class</option>
+                  {classes.map((cls) => (
+                    <option key={cls.id} value={cls.id}>
+                      {cls.name} ({cls.class_code})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="modal-footer">
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setShowCopyModal(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={handleCopyQuiz}
+                  disabled={!targetClassId}
+                >
+                  Copy Quiz
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
-export default QuizResults; 
+export default QuizManagement;
