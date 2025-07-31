@@ -1,9 +1,11 @@
 const express = require('express');
+const http = require('http');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const path = require('path');
 const fs = require('fs');
+const { Server: SocketIOServer } = require('socket.io');
 
 const config = require('./config/config');
 const database = require('./config/database');
@@ -28,10 +30,23 @@ class Server {
         this.setupMiddleware();
         this.setupRoutes();
         this.setupErrorHandling();
+
+        // Create HTTP server and attach Socket.IO
+        this.httpServer = http.createServer(this.app); // <-- ADD THIS LINE
+        this.io = new SocketIOServer(this.httpServer, {
+            cors: {
+                origin: "http://localhost:3000",
+                methods: ["GET", "POST"],
+                        credentials: true // <-- Add this line!
+            }
+        });
+
+        // Make io available globally for emitting events
+        global.io = this.io;
     }
 
+
     setupMiddleware() {
-        // Security middleware
         this.app.use(helmet({
             contentSecurityPolicy: {
                 directives: {
@@ -43,7 +58,6 @@ class Server {
             },
         }));
 
-        // CORS configuration
         this.app.use(cors({
             origin: config.server.corsOrigin,
             credentials: true,
@@ -52,7 +66,6 @@ class Server {
             allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
         }));
 
-        // Rate limiting
         const limiter = rateLimit({
             windowMs: config.rateLimit.windowMs,
             max: config.rateLimit.max,
@@ -65,17 +78,12 @@ class Server {
         });
         this.app.use('/api/', limiter);
 
-        // Body parsing middleware
         this.app.use(express.json({ limit: '10mb' }));
         this.app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-        // Static files
         this.app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
-
-        // Audit logging middleware
         this.app.use(AuditLogger.logActivity);
 
-        // Request logging
         this.app.use((req, res, next) => {
             const timestamp = new Date().toISOString();
             console.log(`[${timestamp}] ${req.method} ${req.path} - ${req.ip}`);
@@ -84,7 +92,6 @@ class Server {
     }
 
     setupRoutes() {
-        // Health check endpoint
         this.app.get('/health', (req, res) => {
             res.json({
                 status: 'OK',
@@ -94,7 +101,6 @@ class Server {
             });
         });
 
-        // API routes
         this.app.use('/api/auth', authRoutes);
         this.app.use('/api/users', userRoutes);
         this.app.use('/api/classes', classRoutes);
@@ -102,7 +108,6 @@ class Server {
         this.app.use('/api/submissions', submissionRoutes);
         this.app.use('/api/admin', adminRoutes);
 
-        // API documentation route
         this.app.get('/api', (req, res) => {
             res.json({
                 message: 'Quiz Management System API',
@@ -119,7 +124,6 @@ class Server {
             });
         });
 
-        // Catch all for undefined routes
         this.app.all('*', (req, res) => {
             res.status(404).json({
                 error: 'Route not found',
@@ -139,22 +143,18 @@ class Server {
     }
 
     setupErrorHandling() {
-        // Global error handler
         this.app.use(errorHandler);
 
-        // Handle uncaught exceptions
         process.on('uncaughtException', (error) => {
             console.error('Uncaught Exception:', error);
             process.exit(1);
         });
 
-        // Handle unhandled promise rejections
         process.on('unhandledRejection', (reason, promise) => {
             console.error('Unhandled Rejection at:', promise, 'reason:', reason);
             process.exit(1);
         });
 
-        // Graceful shutdown
         process.on('SIGTERM', () => {
             console.log('SIGTERM received, shutting down gracefully');
             this.shutdown();
@@ -174,20 +174,17 @@ class Server {
 
     async start() {
         try {
-            // Test database connection
             const dbConnected = await database.testConnection();
             if (!dbConnected) {
                 throw new Error('Database connection failed');
             }
 
-            // Create upload directory if it doesn't exist
             const uploadDir = path.join(__dirname, '../uploads');
             if (!fs.existsSync(uploadDir)) {
                 fs.mkdirSync(uploadDir, { recursive: true });
             }
 
-            // Start server
-            this.app.listen(this.port, () => {
+            this.httpServer.listen(this.port, () => {
                 console.log(`
 🚀 Quiz Management System Server Started!
 📍 Server running on port ${this.port}
@@ -220,4 +217,4 @@ Press Ctrl+C to stop the server
 const server = new Server();
 server.start();
 
-module.exports = server; 
+module.exports = server;

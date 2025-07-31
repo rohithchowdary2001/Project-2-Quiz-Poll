@@ -5,77 +5,68 @@ const database = require("../config/database");
 const AuthMiddleware = require("../middleware/auth");
 const ErrorHandler = require("../middleware/errorHandler");
 const AuditLogger = require("../middleware/auditLogger");
+const aiService = require("../services/aiService");
 
 class QuizController {
-// Get all quizzes (role-based filtering)
-static async getAllQuizzes(req, res, next) {
-  try {
-    const { classId, page = 1, limit = 10 } = req.query;
-    const user = req.user;
+  // Get all quizzes (role-based filtering)
+  static async getAllQuizzes(req, res, next) {
+    try {
+      const { classId, page = 1, limit = 10 } = req.query;
+      const user = req.user;
 
-    let queryParams = [];
+      let queryParams = [];
 
-    const baseQuery = `
-      SELECT q.*, c.name as class_name, c.class_code,
-             u.first_name as professor_first_name, u.last_name as professor_last_name,
-             (SELECT COUNT(*) FROM questions WHERE quiz_id = q.id) as question_count,
-             (SELECT COUNT(*) FROM quiz_submissions WHERE quiz_id = q.id AND is_completed = true) as submission_count
-      FROM quizzes q
-      JOIN classes c ON q.class_id = c.id
-      JOIN users u ON q.professor_id = u.id
-      WHERE q.is_active = true AND c.is_active = true
-    `;
+      const baseQuery = `
+        SELECT q.*, c.name as class_name, c.class_code,
+               u.first_name as professor_first_name, u.last_name as professor_last_name,
+               (SELECT COUNT(*) FROM questions WHERE quiz_id = q.id) as question_count,
+               (SELECT COUNT(*) FROM quiz_submissions WHERE quiz_id = q.id AND is_completed = true) as submission_count
+        FROM quizzes q
+        JOIN classes c ON q.class_id = c.id
+        JOIN users u ON q.professor_id = u.id
+        WHERE q.is_active = true AND c.is_active = true
+      `;
 
-    // Build base query as before (with ? for professor_id and class_id)
+      let query = baseQuery;
 
-let query = baseQuery;
-// let queryParams = [];
+      if (user.role === "admin") {
+        // no params for professor_id
+      } else if (user.role === "professor") {
+        query += " AND q.professor_id = ?";
+        queryParams.push(user.id);
+      } else if (user.role === "student") {
+        query += `
+          AND c.id IN (
+            SELECT class_id FROM class_enrollments 
+            WHERE student_id = ? AND is_active = true
+          )
+        `;
+        queryParams.push(user.id);
+      }
 
-if (user.role === "admin") {
-  // no params for professor_id
-} else if (user.role === "professor") {
-  query += " AND q.professor_id = ?";
-  queryParams.push(user.id);
-} else if (user.role === "student") {
-  query += `
-    AND c.id IN (
-      SELECT class_id FROM class_enrollments 
-      WHERE student_id = ? AND is_active = true
-    )
-  `;
-  queryParams.push(user.id);
-}
+      if (classId) {
+        query += " AND q.class_id = ?";
+        queryParams.push(classId);
+      }
 
-if (classId) {
-  query += " AND q.class_id = ?";
-  queryParams.push(classId);
-}
+      const parsedLimit = parseInt(limit);
+      const offset = (parseInt(page) - 1) * parsedLimit;
 
-// Remove placeholders for LIMIT and OFFSET, inject them directly:
-const parsedLimit = parseInt(limit);
-const offset = (parseInt(page) - 1) * parsedLimit;
+      query += ` ORDER BY q.created_at DESC LIMIT ${parsedLimit} OFFSET ${offset}`;
 
-query += ` ORDER BY q.created_at DESC LIMIT ${parsedLimit} OFFSET ${offset}`;
+      const quizzes = await database.query(query, queryParams);
 
-console.log('Final SQL:', query);
-console.log('Parameters:', queryParams);
-
-const quizzes = await database.query(query, queryParams);
-
-
-    res.json({
-      quizzes,
-      pagination: {
-        page: parseInt(page),
-        limit: parsedLimit,
-      },
-    });
-  } catch (error) {
-    next(error);
+      res.json({
+        quizzes,
+        pagination: {
+          page: parseInt(page),
+          limit: parsedLimit,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
   }
-}
-
-
 
   // Get quiz by ID with questions
   static async getQuizById(req, res, next) {
@@ -86,13 +77,13 @@ const quizzes = await database.query(query, queryParams);
       // Get quiz details
       const quizData = await database.query(
         `
-                SELECT q.*, c.name as class_name, c.class_code,
-                       u.first_name as professor_first_name, u.last_name as professor_last_name
-                FROM quizzes q
-                JOIN classes c ON q.class_id = c.id
-                JOIN users u ON q.professor_id = u.id
-                WHERE q.id = ? AND q.is_active = true
-            `,
+          SELECT q.*, c.name as class_name, c.class_code,
+                 u.first_name as professor_first_name, u.last_name as professor_last_name
+          FROM quizzes q
+          JOIN classes c ON q.class_id = c.id
+          JOIN users u ON q.professor_id = u.id
+          WHERE q.id = ? AND q.is_active = true
+        `,
         [id]
       );
 
@@ -124,9 +115,9 @@ const quizzes = await database.query(query, queryParams);
 
       // Get questions and options
       let questionsQuery = `
-                SELECT q.*, 
-                       ao.id as option_id, ao.option_text, ao.option_order
-            `;
+        SELECT q.*, 
+               ao.id as option_id, ao.option_text, ao.option_order
+      `;
 
       // Only include correct answers for professors/admin or if explicitly requested
       if (
@@ -138,11 +129,11 @@ const quizzes = await database.query(query, queryParams);
       }
 
       questionsQuery += `
-                FROM questions q
-                LEFT JOIN answer_options ao ON q.id = ao.question_id
-                WHERE q.quiz_id = ?
-                ORDER BY q.question_order, ao.option_order
-            `;
+        FROM questions q
+        LEFT JOIN answer_options ao ON q.id = ao.question_id
+        WHERE q.quiz_id = ?
+        ORDER BY q.question_order, ao.option_order
+      `;
 
       const questionsData = await database.query(questionsQuery, [id]);
 
@@ -156,6 +147,7 @@ const quizzes = await database.query(query, queryParams);
             questionType: row.question_type,
             questionOrder: row.question_order,
             points: row.points,
+            questionTimeLimit: row.question_time_limit, // Add this field
             isRequired: row.is_required,
             options: [],
           });
@@ -200,19 +192,19 @@ const quizzes = await database.query(query, queryParams);
       }
 
       let query = `
-                SELECT q.*, c.name as class_name, c.class_code,
-                       u.first_name as professor_first_name, u.last_name as professor_last_name,
-                       (SELECT COUNT(*) FROM questions WHERE quiz_id = q.id) as question_count,
-                       (SELECT COUNT(*) FROM quiz_submissions WHERE quiz_id = q.id AND is_completed = true) as submission_count,
-                       qs.id as submission_id, qs.is_completed, qs.total_score, qs.max_score, qs.started_at, qs.submitted_at
-                FROM quizzes q
-                JOIN classes c ON q.class_id = c.id
-                JOIN users u ON q.professor_id = u.id
-                JOIN class_enrollments ce ON c.id = ce.class_id
-                LEFT JOIN quiz_submissions qs ON q.id = qs.quiz_id AND qs.student_id = ?
-                WHERE q.is_active = true AND c.is_active = true 
-                AND ce.student_id = ? AND ce.is_active = true
-            `;
+        SELECT q.*, c.name as class_name, c.class_code,
+               u.first_name as professor_first_name, u.last_name as professor_last_name,
+               (SELECT COUNT(*) FROM questions WHERE quiz_id = q.id) as question_count,
+               (SELECT COUNT(*) FROM quiz_submissions WHERE quiz_id = q.id AND is_completed = true) as submission_count,
+               qs.id as submission_id, qs.is_completed, qs.total_score, qs.max_score, qs.started_at, qs.submitted_at
+        FROM quizzes q
+        JOIN classes c ON q.class_id = c.id
+        JOIN users u ON q.professor_id = u.id
+        JOIN class_enrollments ce ON c.id = ce.class_id
+        LEFT JOIN quiz_submissions qs ON q.id = qs.quiz_id AND qs.student_id = ?
+        WHERE q.is_active = true AND c.is_active = true 
+        AND ce.student_id = ? AND ce.is_active = true
+      `;
 
       let queryParams = [user.id, user.id];
 
@@ -241,7 +233,7 @@ const quizzes = await database.query(query, queryParams);
   // Create new quiz (professor only)
   static async createQuiz(req, res, next) {
     try {
-      const { title, description, classId, deadline, timeLimit, questions } =
+      const { title, description, classId, deadline, questionTimeLimit, questions } =
         req.body;
 
       // Validate required fields
@@ -287,7 +279,7 @@ const quizzes = await database.query(query, queryParams);
             classId,
             req.user.id,
             deadlineDate,
-            timeLimit || 30,
+            Math.ceil((questionTimeLimit || 30) * questions.length / 60), // Calculate total time based on questions
           ]
         );
 
@@ -309,14 +301,15 @@ const quizzes = await database.query(query, queryParams);
 
           // Insert question
           const [questionResult] = await connection.execute(
-            `INSERT INTO questions (quiz_id, question_text, question_type, question_order, points) 
-                         VALUES (?, ?, ?, ?, ?)`,
+            `INSERT INTO questions (quiz_id, question_text, question_type, question_order, points, question_time_limit) 
+                         VALUES (?, ?, ?, ?, ?, ?)`,
             [
               quizId,
               question.questionText,
               question.questionType || "single_choice",
               i + 1,
               question.points || 1,
+              questionTimeLimit || 30,
             ]
           );
 
@@ -373,7 +366,7 @@ const quizzes = await database.query(query, queryParams);
           description: description,
           classId: classId,
           deadline: deadlineDate,
-          timeLimit: timeLimit || 30,
+          timeLimit: questionTimeLimit || 30,
           questionCount: questions.length,
         },
       });
@@ -566,35 +559,35 @@ const quizzes = await database.query(query, queryParams);
       // Get detailed results
       const results = await database.query(
         `
-                SELECT 
-                    u.id, u.username, u.first_name, u.last_name,
-                    qs.started_at, qs.submitted_at, qs.time_taken_minutes,
-                    qs.total_score, qs.max_score, qs.is_completed,
-                    ROUND((qs.total_score / qs.max_score) * 100, 2) as percentage
-                FROM quiz_submissions qs
-                JOIN users u ON qs.student_id = u.id
-                WHERE qs.quiz_id = ? AND qs.is_completed = true
-                ORDER BY qs.submitted_at DESC
-            `,
+          SELECT 
+            u.id, u.username, u.first_name, u.last_name,
+            qs.started_at, qs.submitted_at, qs.time_taken_minutes,
+            qs.total_score, qs.max_score, qs.is_completed,
+            ROUND((qs.total_score / qs.max_score) * 100, 2) as percentage
+          FROM quiz_submissions qs
+          JOIN users u ON qs.student_id = u.id
+          WHERE qs.quiz_id = ? AND qs.is_completed = true
+          ORDER BY qs.submitted_at DESC
+        `,
         [id]
       );
 
       // Get answer statistics
       const answerStats = await database.query(
         `
-                SELECT 
-                    q.id as question_id, q.question_text, q.question_order,
-                    ao.id as option_id, ao.option_text, ao.is_correct,
-                    COUNT(sa.id) as selection_count,
-                    ROUND((COUNT(sa.id) / (SELECT COUNT(*) FROM quiz_submissions WHERE quiz_id = ? AND is_completed = true)) * 100, 2) as percentage
-                FROM questions q
-                LEFT JOIN answer_options ao ON q.id = ao.question_id
-                LEFT JOIN student_answers sa ON ao.id = sa.selected_option_id
-                LEFT JOIN quiz_submissions qs ON sa.submission_id = qs.id AND qs.quiz_id = ?
-                WHERE q.quiz_id = ?
-                GROUP BY q.id, ao.id
-                ORDER BY q.question_order, ao.option_order
-            `,
+          SELECT 
+            q.id as question_id, q.question_text, q.question_order,
+            ao.id as option_id, ao.option_text, ao.is_correct,
+            COUNT(sa.id) as selection_count,
+            ROUND((COUNT(sa.id) / (SELECT COUNT(*) FROM quiz_submissions WHERE quiz_id = ? AND is_completed = true)) * 100, 2) as percentage
+          FROM questions q
+          LEFT JOIN answer_options ao ON q.id = ao.question_id
+          LEFT JOIN student_answers sa ON ao.id = sa.selected_option_id
+          LEFT JOIN quiz_submissions qs ON sa.submission_id = qs.id AND qs.quiz_id = ?
+          WHERE q.quiz_id = ?
+          GROUP BY q.id, ao.id
+          ORDER BY q.question_order, ao.option_order
+        `,
         [id, id, id]
       );
 
@@ -611,6 +604,210 @@ const quizzes = await database.query(query, queryParams);
       next(error);
     }
   }
+
+  // Create quiz from template (professor only)
+  static async createFromTemplate(req, res, next) {
+    try {
+      const { templateId, title, classId, deadline, timeLimit } = req.body;
+
+      // Validate required fields
+      ErrorHandler.validateRequired(
+        ["templateId", "title", "classId"],
+        req.body
+      );
+
+      // Check if template belongs to professor
+      const template = await database.findOne("quiz_templates", {
+        id: templateId,
+        professor_id: req.user.id,
+      });
+
+      if (!template) {
+        throw ErrorHandler.notFoundError("Quiz template not found");
+      }
+
+      // Check if class belongs to professor
+      const classData = await database.findOne("classes", {
+        id: classId,
+        professor_id: req.user.id,
+        is_active: true,
+      });
+
+      if (!classData) {
+        throw ErrorHandler.notFoundError(
+          "Class not found or you do not have permission"
+        );
+      }
+
+      // Get original quiz data
+      const originalQuiz = await database.findById(
+        "quizzes",
+        template.original_quiz_id
+      );
+      if (!originalQuiz) {
+        throw ErrorHandler.notFoundError("Original quiz not found");
+      }
+
+      // Get questions and options from original quiz
+      const questionsData = await database.query(
+        `
+          SELECT q.*, ao.id as option_id, ao.option_text, ao.option_order, ao.is_correct
+          FROM questions q
+          LEFT JOIN answer_options ao ON q.id = ao.question_id
+          WHERE q.quiz_id = ?
+          ORDER BY q.question_order, ao.option_order
+        `,
+        [originalQuiz.id]
+      );
+
+      // Validate deadline if provided
+      let deadlineDate = null;
+      if (deadline) {
+        deadlineDate = ErrorHandler.validateFutureDate(deadline, "deadline");
+      }
+
+      // Create new quiz from template
+      const result = await database.transaction(async (connection) => {
+        // Insert new quiz
+        const [quizResult] = await connection.execute(
+          `INSERT INTO quizzes (title, description, class_id, professor_id, deadline, time_limit_minutes) 
+                     VALUES (?, ?, ?, ?, ?, ?)`,
+          [
+            title,
+            originalQuiz.description,
+            classId,
+            req.user.id,
+            deadlineDate,
+            timeLimit || originalQuiz.time_limit_minutes,
+          ]
+        );
+
+        const newQuizId = quizResult.insertId;
+
+        // Group questions and their options
+        const questionsMap = new Map();
+        questionsData.forEach((row) => {
+          if (!questionsMap.has(row.id)) {
+            questionsMap.set(row.id, {
+              ...row,
+              options: [],
+            });
+          }
+
+          if (row.option_id) {
+            questionsMap.get(row.id).options.push({
+              id: row.option_id,
+              text: row.option_text,
+              order: row.option_order,
+              isCorrect: row.is_correct,
+            });
+          }
+        });
+
+        // Insert questions and options
+        for (const question of questionsMap.values()) {
+          const [questionResult] = await connection.execute(
+            `INSERT INTO questions (quiz_id, question_text, question_type, question_order, points) 
+                         VALUES (?, ?, ?, ?, ?)`,
+            [
+              newQuizId,
+              question.question_text,
+              question.question_type,
+              question.question_order,
+              question.points,
+            ]
+          );
+
+          const newQuestionId = questionResult.insertId;
+
+          // Insert options
+          for (const option of question.options) {
+            await connection.execute(
+              `INSERT INTO answer_options (question_id, option_text, option_order, is_correct) 
+                             VALUES (?, ?, ?, ?)`,
+              [newQuestionId, option.text, option.order, option.isCorrect]
+            );
+          }
+        }
+
+        return newQuizId;
+      });
+
+      // Log quiz creation from template
+      await AuditLogger.logUserAction(
+        req.user.id,
+        "QUIZ_CREATE_FROM_TEMPLATE",
+        "quizzes",
+        result,
+        { template_id: templateId },
+        { title, class_id: classId },
+        req
+      );
+
+      res.status(201).json({
+        message: "Quiz created from template successfully",
+        quiz: {
+          id: result,
+          title: title,
+          classId: classId,
+          templateId: templateId,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // Generate AI quiz questions
+  static async generateAIQuiz(req, res, next) {
+    try {
+      const { topic, numQuestions = 5, difficulty = 'medium' } = req.body;
+
+      // Validate required fields
+      if (!topic || topic.trim().length === 0) {
+        throw ErrorHandler.validationError("Topic is required for AI quiz generation");
+      }
+
+      // Validate parameters
+      const validDifficulties = ['easy', 'medium', 'hard'];
+      if (!validDifficulties.includes(difficulty)) {
+        throw ErrorHandler.validationError("Difficulty must be easy, medium, or hard");
+      }
+
+      const numQuestionsInt = parseInt(numQuestions);
+      if (isNaN(numQuestionsInt) || numQuestionsInt < 1 || numQuestionsInt > 20) {
+        throw ErrorHandler.validationError("Number of questions must be between 1 and 20");
+      }
+
+      // Generate questions using AI
+      const questions = await aiService.generateQuiz(topic.trim(), numQuestionsInt, difficulty);
+
+      // Log AI quiz generation
+      await AuditLogger.logUserAction(
+        req.user.id,
+        "AI_QUIZ_GENERATE",
+        "quizzes",
+        null,
+        null,
+        { topic, numQuestions: numQuestionsInt, difficulty, generatedQuestions: questions.length },
+        req
+      );
+
+      res.status(200).json({
+        message: "AI quiz generated successfully",
+        questions: questions,
+        metadata: {
+          topic: topic.trim(),
+          numQuestions: questions.length,
+          difficulty: difficulty,
+          generatedAt: new Date().toISOString()
+        }
+      });
+    } catch (error) {
+      console.error('AI Quiz Generation Error:', error);
+      next(error);
+    }
+  }
 }
 
 // Quiz routes
@@ -624,6 +821,12 @@ router.get(
   AuthMiddleware.verifyToken,
   AuthMiddleware.requireStudent,
   ErrorHandler.asyncHandler(QuizController.getAvailableQuizzes)
+);
+router.post(
+  "/generate-ai",
+  AuthMiddleware.verifyToken,
+  AuthMiddleware.requireProfessor,
+  ErrorHandler.asyncHandler(QuizController.generateAIQuiz)
 );
 router.get(
   "/:id",
@@ -648,7 +851,12 @@ router.delete(
   AuthMiddleware.requireProfessor,
   ErrorHandler.asyncHandler(QuizController.deleteQuiz)
 );
-
+router.post(
+  "/from-template",
+  AuthMiddleware.verifyToken,
+  AuthMiddleware.requireProfessor,
+  ErrorHandler.asyncHandler(QuizController.createFromTemplate)
+);
 router.get(
   "/:id/results",
   AuthMiddleware.verifyToken,

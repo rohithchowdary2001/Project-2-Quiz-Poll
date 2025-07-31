@@ -1,5 +1,31 @@
 import { api, endpoints } from './api';
 
+
+const login = async (credentials) => {
+  try {
+    const response = await authService.login(credentials);
+    console.log('Login response data:', response.data);  // Check full response
+
+    const { token, user } = response.data;
+    console.log('Extracted token:', token);  // Check token value
+
+    if (token) {
+      localStorage.setItem('token', token);
+      console.log('Token saved to localStorage');
+    } else {
+      console.warn('No token found in login response');
+    }
+
+    setUser(user);
+
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.response?.data?.message || 'Login failed' };
+  }
+};
+
+
+
 const authService = {
   // Login user
   login: async (credentials) => {
