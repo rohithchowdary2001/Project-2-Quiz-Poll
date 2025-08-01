@@ -14,6 +14,7 @@ const Login = () => {
     const { login, user } = useAuth();
     const navigate = useNavigate();
 
+    // If user is already logged in, redirect to appropriate dashboard
     useEffect(() => {
         if (user) {
             console.log('Login - User already authenticated, redirecting to dashboard...');
@@ -47,6 +48,7 @@ const Login = () => {
             
             const { user, token } = response.data;
             
+            // Store user data and token
             const loginResult = await login(user, token);
             
             if (loginResult.success) {
