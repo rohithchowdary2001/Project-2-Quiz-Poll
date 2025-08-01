@@ -162,33 +162,7 @@ const QuizTaking = () => {
         }
 
         // Small delay to ensure submission is processed
-        await new Promise(resolve => setTimeout(resolve, 200));
 
-        // Move to next question or complete quiz
-        if (currentQuestionIdx === currentQuiz.questions.length - 1) {
-            // Last question - auto-submit quiz and navigate to results
-            console.log('🏁 Time expired on last question, completing quiz and navigating to results');
-            
-            try {
-                const response = await api.post('/submissions/complete', {
-                    submissionId: currentSubmission.id
-                });
-                
-                console.log('✅ Quiz auto-completed successfully!', response.data);
-                
-                // Navigate to results page
-                const resultsUrl = `/student/quiz-results/${currentSubmission.id}`;
-                console.log('🔄 Auto-navigating to results page:', resultsUrl);
-                navigate(resultsUrl, { replace: true });
-                
-            } catch (err) {
-                console.error('❌ Failed to auto-complete quiz:', err);
-                // Even if completion fails, try to navigate to results
-                navigate(`/student/quiz-results/${currentSubmission.id}`, { replace: true });
-            }
-        } else {
-            // Move to next question
-            console.log('⏭️ Time expired, moving to next question:', currentQuestionIdx + 1);
             setCurrentQuestionIndex(currentQuestionIdx + 1);
         }
     }, []); // Empty dependency array since we're using refs
@@ -299,8 +273,7 @@ const QuizTaking = () => {
         try {
             setSubmitting(true);
             
-            // Always submit the current question's answer before completing the quiz
-            if (quiz && quiz.questions && quiz.questions[currentQuestionIndex]) {
+
                 const currentQuestion = quiz.questions[currentQuestionIndex];
                 const answer = answers[currentQuestion.id];
                 
@@ -316,46 +289,13 @@ const QuizTaking = () => {
                             selectedOptionId: answer
                         });
                         
-                        console.log('✅ Final answer submitted successfully for question:', currentQuestion.id);
-                    } catch (err) {
-                        console.error('❌ Failed to submit final answer:', err);
-                        // Continue with quiz completion even if final answer submission fails
-                    }
-                } else {
-                    console.log('⚠️ No final answer to submit for question:', currentQuestion.id, 'Answer value:', answer, 'Type:', typeof answer);
-                }
-            }
-            
-            // Small delay to ensure answer is processed
-            await new Promise(resolve => setTimeout(resolve, 500));
-            
-            console.log('🏁 Completing quiz with submission ID:', submission.id);
+
             const response = await api.post('/submissions/complete', {
                 submissionId: submission.id
             });
             
             console.log('✅ Quiz completed successfully!', response.data);
-            
-            // Navigate to results page
-            const resultsUrl = `/student/quiz-results/${submission.id}`;
-            console.log('🔄 Navigating to results page:', resultsUrl);
-            navigate(resultsUrl, { replace: true });
-            
-        } catch (err) {
-            console.error('❌ Failed to complete quiz:', err);
-            console.error('❌ Error response:', err.response);
-            console.error('❌ Error status:', err.response?.status);
-            console.error('❌ Error data:', err.response?.data);
-            
-            // Show more detailed error information
-            const errorMessage = err.response?.data?.message || err.message || 'Failed to complete quiz';
-            setError(`Failed to complete quiz: ${errorMessage}`);
-            
-            // If it's a server error, still try to navigate to results
-            if (err.response?.status >= 500) {
-                console.log('🔄 Server error occurred, but attempting to navigate to results anyway');
-                navigate(`/student/quiz-results/${submission.id}`, { replace: true });
-            }
+
         } finally {
             setSubmitting(false);
             setShowConfirmSubmit(false);
@@ -630,4 +570,5 @@ const QuizTaking = () => {
         </div>
     );
 };
+
 export default QuizTaking;
