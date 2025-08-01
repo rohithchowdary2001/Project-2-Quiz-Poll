@@ -162,22 +162,30 @@ const QuizTaking = () => {
         }
 
         // Small delay to ensure submission is processed
-        await new Promise(resolve => setTimeout(resolve, 100));
-
-        // Move to next question or complete quiz
-        if (currentQuestionIdx === currentQuiz.questions.length - 1) {
-            // Last question - auto-submit quiz (skip final answer submission since we just did it)
-            console.log('Time expired on last question, completing quiz (skipping duplicate answer submission)');
-            handleCompleteQuiz(true); // Skip final answer submission
-        } else {
-            // Move to next question
-            console.log('Time expired, moving to next question:', currentQuestionIdx + 1);
-            setCurrentQuestionIndex(currentQuestionIdx + 1);
-        }
+        setTimeout(async () => {
+            // Check if this was the last question
+            if (currentQuestionIdx >= currentQuiz.questions.length - 1) {
+                console.log('⏰ Timer expired on last question - completing quiz automatically');
+                // Auto-complete the quiz since we're on the last question
+                try {
+                    const response = await api.post('/submissions/complete', {
+                        submissionId: currentSubmission.id
+                    });
+                    console.log('✅ Quiz auto-completed successfully after timer expiry!', response.data);
+                    navigate(`/student/quiz-results/${currentSubmission.id}`);
+                } catch (err) {
+                    console.error('❌ Failed to auto-complete quiz:', err.response?.data || err.message);
+                    setError(err.response?.data?.message || 'Failed to complete quiz automatically');
+                }
+            } else {
+                console.log('⏰ Timer expired - moving to next question');
+                setCurrentQuestionIndex(currentQuestionIdx + 1);
+            }
+        }, 100);
     }, []); // Empty dependency array since we're using refs
 
     const handleAnswerSelect = async (questionId, optionId) => {
-        // Just update local state - don't submit to server yet
+        // Update local state
         const newAnswers = {
             ...answers,
             [questionId]: optionId
@@ -185,12 +193,44 @@ const QuizTaking = () => {
         
         setAnswers(newAnswers);
         
-        console.log('Answer selected locally for question:', questionId, 'option:', optionId, 'type:', typeof optionId);
+        console.log('Answer selected for question:', questionId, 'option:', optionId, 'type:', typeof optionId);
         console.log('Updated answers state:', newAnswers);
+        
+        // Submit answer immediately to server (like timeout behavior)
+        if (submission) {
+            try {
+                console.log('🚀 Submitting answer immediately for question:', questionId, 'answer:', optionId);
+                
+                await api.post('/submissions/answer', {
+                    submissionId: submission.id,
+                    questionId: questionId,
+                    selectedOptionId: optionId
+                });
+                
+                console.log('✅ Answer submitted immediately for question:', questionId);
+            } catch (err) {
+                console.error('❌ Failed to submit answer immediately for question:', questionId, err.response?.data || err.message);
+                // Don't show error to user as this is background submission
+                // The answer is still stored locally and will be submitted during quiz completion if needed
+            }
+        }
     };
 
     const handleNextQuestion = async () => {
+        // Safety check
+        if (!quiz || !quiz.questions || currentQuestionIndex >= quiz.questions.length) {
+            console.error('Cannot proceed to next question: invalid quiz state');
+            return;
+        }
+        
         const currentQuestion = quiz.questions[currentQuestionIndex];
+        
+        // Additional safety check for currentQuestion
+        if (!currentQuestion) {
+            console.error('Cannot proceed to next question: currentQuestion is undefined');
+            return;
+        }
+        
         const answer = answers[currentQuestion.id];
 
         console.log('Next button clicked. Current question:', currentQuestion.id, 'Answer:', answer, 'Type:', typeof answer);
@@ -223,7 +263,20 @@ const QuizTaking = () => {
     };
 
     const handlePreviousQuestion = async () => {
+        // Safety check
+        if (!quiz || !quiz.questions || currentQuestionIndex >= quiz.questions.length) {
+            console.error('Cannot go to previous question: invalid quiz state');
+            return;
+        }
+        
         const currentQuestion = quiz.questions[currentQuestionIndex];
+        
+        // Additional safety check for currentQuestion
+        if (!currentQuestion) {
+            console.error('Cannot go to previous question: currentQuestion is undefined');
+            return;
+        }
+        
         const answer = answers[currentQuestion.id];
 
         console.log('Previous button clicked. Current question:', currentQuestion.id, 'Answer:', answer, 'Type:', typeof answer);
@@ -282,48 +335,61 @@ const QuizTaking = () => {
         try {
             setSubmitting(true);
             
-            // Submit the current question's answer before completing the quiz (unless already submitted)
-            if (!skipFinalAnswerSubmission && quiz && quiz.questions && quiz.questions[currentQuestionIndex]) {
-                const currentQuestion = quiz.questions[currentQuestionIndex];
-                const answer = answers[currentQuestion.id];
+            // Since answers are now submitted immediately when selected,
+            // we only need to ensure any pending answers are submitted as a backup
+            if (!skipFinalAnswerSubmission && quiz && quiz.questions && submission) {
+                console.log('🔄 Checking for any pending answers to submit as backup...');
                 
-                console.log('Before completing quiz - submitting final answer for question:', currentQuestion.id, 'answer:', answer);
-                
-                if (submission && answer != null && answer !== undefined) {
-                    try {
-                        console.log('Submitting final answer before quiz completion:', currentQuestion.id, 'answer:', answer);
-                        
-                        await api.post('/submissions/answer', {
-                            submissionId: submission.id,
-                            questionId: currentQuestion.id,
-                            selectedOptionId: answer
-                        });
-                        
-                        console.log('Final answer submitted successfully for question:', currentQuestion.id);
-                    } catch (err) {
-                        console.error('Failed to submit final answer:', err);
-                        // Continue with quiz completion even if final answer submission fails
+                // Only submit answers that might have failed during immediate submission
+                let pendingCount = 0;
+                for (const question of quiz.questions) {
+                    const answer = answers[question.id];
+                    if (answer != null && answer !== undefined) {
+                        pendingCount++;
+                        try {
+                            console.log('📤 Backup submission for question:', question.id, 'answer:', answer);
+                            
+                            await api.post('/submissions/answer', {
+                                submissionId: submission.id,
+                                questionId: question.id,
+                                selectedOptionId: answer
+                            });
+                            
+                            console.log('✅ Backup answer submitted for question:', question.id);
+                            
+                        } catch (err) {
+                            // This might fail if answer was already submitted, which is fine
+                            console.log('ℹ️ Backup submission for question', question.id, 'failed (probably already submitted):', err.response?.data?.message || err.message);
+                        }
                     }
-                } else {
-                    console.log('No final answer to submit for question:', currentQuestion.id, 'Answer value:', answer, 'Type:', typeof answer);
                 }
-            } else if (skipFinalAnswerSubmission) {
-                console.log('Skipping final answer submission (already submitted by timer)');
+                
+                console.log(`✅ Backup submission check complete. Found ${pendingCount} answers.`);
+                
+                // Small delay to ensure all submissions are processed
+                if (pendingCount > 0) {
+                    console.log('⏳ Waiting for backup submissions to complete...');
+                    await new Promise(resolve => setTimeout(resolve, 300));
+                }
             }
-            
-            // Small delay to ensure answer is processed
-            await new Promise(resolve => setTimeout(resolve, 300));
-            
-            console.log('Completing quiz with submission ID:', submission.id);
+
+            console.log('🎯 Starting quiz completion process...');
             const response = await api.post('/submissions/complete', {
                 submissionId: submission.id
             });
             
             console.log('✅ Quiz completed successfully!', response.data);
-            alert(`Quiz completed! Your score: ${response.data.result.score}/${response.data.result.maxScore} (${response.data.result.percentage}%)`);
-            navigate('/student/history');
+            
+            // Small delay to ensure the socket event for quiz completion is processed
+            await new Promise(resolve => setTimeout(resolve, 200));
+            
+            console.log('🔄 Quiz completion socket event should have been sent. Navigating to results...');
+            
+            // Navigate to results page
+            navigate(`/student/quiz-results/${submission.id}`);
+
         } catch (err) {
-            console.error('❌ Failed to complete quiz:', err);
+            console.error('❌ Failed to complete quiz:', err.response?.data || err.message);
             setError(err.response?.data?.message || 'Failed to complete quiz');
         } finally {
             setSubmitting(false);
@@ -377,7 +443,43 @@ const QuizTaking = () => {
         );
     }
 
+    // Additional safety checks for quiz questions
+    if (!quiz.questions || quiz.questions.length === 0) {
+        return (
+            <div className="container mt-4">
+                <div className="alert alert-warning">
+                    <i className="fas fa-exclamation-triangle me-2"></i>
+                    No questions found in this quiz.
+                </div>
+            </div>
+        );
+    }
+
+    if (currentQuestionIndex >= quiz.questions.length) {
+        return (
+            <div className="container mt-4">
+                <div className="alert alert-warning">
+                    <i className="fas fa-exclamation-triangle me-2"></i>
+                    Invalid question index.
+                </div>
+            </div>
+        );
+    }
+
     const currentQuestion = quiz.questions[currentQuestionIndex];
+    
+    // Final safety check for currentQuestion
+    if (!currentQuestion) {
+        return (
+            <div className="container mt-4">
+                <div className="alert alert-warning">
+                    <i className="fas fa-exclamation-triangle me-2"></i>
+                    Current question not found.
+                </div>
+            </div>
+        );
+    }
+
     const progress = calculateProgress();
 
     return (
