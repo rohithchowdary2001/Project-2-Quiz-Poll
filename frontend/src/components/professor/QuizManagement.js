@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useAuth } from "../../context/AuthContext";
+import { Link } from "react-router-dom";
 import api from "../../services/api";
 import socket from "../../services/socket";
 
@@ -162,6 +163,31 @@ const QuizManagement = () => {
     }
   };
 
+  const handleToggleQuizLiveActive = async (quizId, currentStatus) => {
+    try {
+      const newStatus = !currentStatus;
+      console.log(`🔄 Toggling quiz ${quizId} from ${currentStatus} to ${newStatus}`);
+      
+      const response = await api.patch(`/quizzes/${quizId}/toggle-live-active`, {
+        isLiveActive: newStatus
+      });
+      
+      console.log(`📡 Toggle response:`, response.data);
+      
+      // Update the quiz in local state immediately for better UX
+      setQuizzes(prev => prev.map(quiz => 
+        quiz.id === quizId 
+          ? { ...quiz, is_live_active: newStatus }
+          : quiz
+      ));
+      
+      console.log(`✅ Quiz ${quizId} ${newStatus ? 'activated' : 'deactivated'} successfully`);
+    } catch (err) {
+      console.error('❌ Failed to toggle quiz status:', err);
+      setError(err.response?.data?.message || 'Failed to update quiz status');
+    }
+  };
+
   const handleGenerateAI = async (e) => {
     e.preventDefault();
     try {
@@ -275,12 +301,21 @@ const QuizManagement = () => {
   };
 
   const getStatusBadge = (quiz) => {
-    const now = new Date();
-    const deadline = quiz.deadline ? new Date(quiz.deadline) : null;
-    if (deadline && now > deadline) {
-      return <span className="badge bg-danger">Expired</span>;
+    if (quiz.is_live_active) {
+      return (
+        <span className="badge bg-success">
+          <i className="fas fa-play me-1"></i>
+          Active
+        </span>
+      );
+    } else {
+      return (
+        <span className="badge bg-warning text-dark">
+          <i className="fas fa-pause me-1"></i>
+          Paused
+        </span>
+      );
     }
-    return <span className="badge bg-success">Active</span>;
   };
 
   if (loading) {
@@ -408,16 +443,36 @@ const QuizManagement = () => {
                       <td>{quiz.question_count || 0}</td>
                       <td>{quiz.submission_count || 0}</td>
                       <td>{formatDate(quiz.deadline)}</td>
-                      <td>{getStatusBadge(quiz)}</td>
+                      <td>
+                        <div className="d-flex align-items-center justify-content-between">
+                          {getStatusBadge(quiz)}
+                          <button
+                            className={`btn btn-sm ms-2 ${
+                              quiz.is_live_active 
+                                ? 'btn-outline-warning' 
+                                : 'btn-outline-success'
+                            }`}
+                            onClick={() => handleToggleQuizLiveActive(quiz.id, quiz.is_live_active)}
+                            title={`Click to ${quiz.is_live_active ? 'pause' : 'activate'} quiz for students`}
+                          >
+                            <i className={`fas ${
+                              quiz.is_live_active 
+                                ? 'fa-pause' 
+                                : 'fa-play'
+                            } me-1`}></i>
+                            {quiz.is_live_active ? 'Pause' : 'Activate'}
+                          </button>
+                        </div>
+                      </td>
                       <td>
                         <div className="btn-group" role="group">
-                          <a
-                            href={`/professor/quiz-results/${quiz.id}`}
+                          <Link
+                            to={`/professor/quiz-results/${quiz.id}`}
                             className="btn btn-sm btn-outline-primary"
                           >
                             <i className="fas fa-chart-bar me-1"></i>
                             More...
-                          </a>
+                          </Link>
                           <button
                             className="btn btn-sm btn-outline-danger"
                             onClick={() =>
