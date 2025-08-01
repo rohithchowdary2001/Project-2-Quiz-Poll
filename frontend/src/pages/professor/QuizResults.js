@@ -11,22 +11,14 @@ const QuizManagement = () => {
   const [error, setError] = useState("");
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showCopyModal, setShowCopyModal] = useState(false);
-  const [showAIModal, setShowAIModal] = useState(false);
   const [selectedQuiz, setSelectedQuiz] = useState(null);
   const [targetClassId, setTargetClassId] = useState("");
   const [selectedClassId, setSelectedClassId] = useState("");
-  const [aiGenerating, setAiGenerating] = useState(false);
-  const [aiForm, setAiForm] = useState({
-    topic: "",
-    numQuestions: 5,
-    difficulty: "medium"
-  });
   const [quizForm, setQuizForm] = useState({
     title: "",
     description: "",
     classId: "",
     deadline: "",
-    questionTimeLimit: 30, // Single time limit for ALL questions
     questions: [
       {
         questionText: "",
@@ -36,6 +28,7 @@ const QuizManagement = () => {
           { text: "", isCorrect: false },
           { text: "", isCorrect: false },
         ],
+        questionTimeLimit: 30, // seconds, default
       },
     ],
   });
@@ -112,18 +105,16 @@ const QuizManagement = () => {
           setError(`Question ${i + 1} must have at least one correct answer`);
           return;
         }
-      }
-      
-      if (!quizForm.questionTimeLimit || quizForm.questionTimeLimit < 5) {
-        setError(`Question time limit must be at least 5 seconds`);
-        return;
+        if (!question.questionTimeLimit || question.questionTimeLimit < 5) {
+          setError(`Question ${i + 1} must have a time limit of at least 5 seconds`);
+          return;
+        }
       }
       const response = await api.post("/quizzes", {
         title: quizForm.title,
         description: quizForm.description,
         classId: quizForm.classId,
         deadline: quizForm.deadline || null,
-        questionTimeLimit: quizForm.questionTimeLimit,
         questions: quizForm.questions,
       });
       setShowCreateModal(false);
@@ -162,41 +153,6 @@ const QuizManagement = () => {
     }
   };
 
-  const handleGenerateAI = async (e) => {
-    e.preventDefault();
-    try {
-      setAiGenerating(true);
-      setError("");
-
-      if (!aiForm.topic.trim()) {
-        setError("Please enter a topic for AI generation");
-        return;
-      }
-
-      const response = await api.post("/quizzes/generate-ai", {
-        topic: aiForm.topic,
-        numQuestions: aiForm.numQuestions,
-        difficulty: aiForm.difficulty
-      });
-
-      // Add generated questions to the quiz form
-      setQuizForm({
-        ...quizForm,
-        questions: response.data.questions
-      });
-
-      setShowAIModal(false);
-      setShowCreateModal(true);
-      setAiForm({ topic: "", numQuestions: 5, difficulty: "medium" });
-      
-      alert(`Successfully generated ${response.data.questions.length} questions about "${response.data.metadata.topic}"!`);
-    } catch (err) {
-      setError(err.response?.data?.message || "Failed to generate AI questions");
-    } finally {
-      setAiGenerating(false);
-    }
-  };
-
   const addQuestion = () => {
     setQuizForm({
       ...quizForm,
@@ -210,6 +166,7 @@ const QuizManagement = () => {
             { text: "", isCorrect: false },
             { text: "", isCorrect: false },
           ],
+          questionTimeLimit: 30, // default per-question time limit
         },
       ],
     });
@@ -254,7 +211,6 @@ const QuizManagement = () => {
       description: "",
       classId: "",
       deadline: "",
-      questionTimeLimit: 30,
       questions: [
         {
           questionText: "",
@@ -264,6 +220,7 @@ const QuizManagement = () => {
             { text: "", isCorrect: false },
             { text: "", isCorrect: false },
           ],
+          questionTimeLimit: 30,
         },
       ],
     });
@@ -300,14 +257,6 @@ const QuizManagement = () => {
       <div className="d-flex justify-content-between align-items-center mb-4">
         <h2>Quiz Management</h2>
         <div>
-          <button
-            className="btn btn-info me-2"
-            onClick={() => setShowAIModal(true)}
-            title="Generate quiz questions using AI"
-          >
-            <i className="fas fa-robot me-2"></i>
-            AI Generate
-          </button>
           <button
             className="btn btn-success me-2"
             onClick={() => setShowCreateModal(true)}
@@ -513,30 +462,6 @@ const QuizManagement = () => {
                           }
                         />
                       </div>
-                      <div className="col-md-6 mb-3">
-                        <label className="form-label">
-                          Question Time Limit (seconds)
-                        </label>
-                        <input
-                          type="number"
-                          className="form-control"
-                          value={quizForm.questionTimeLimit}
-                          onChange={(e) => {
-                            const value = e.target.value;
-                            const numValue = value === '' ? 30 : parseInt(value);
-                            setQuizForm({
-                              ...quizForm,
-                              questionTimeLimit: isNaN(numValue) ? 30 : numValue,
-                            });
-                          }}
-                          min="5"
-                          max="300"
-                          placeholder="Time per question in seconds"
-                        />
-                        <small className="text-muted">
-                          This time limit will apply to ALL questions
-                        </small>
-                      </div>
                       <div className="col-12 mb-3">
                         <label className="form-label">Description</label>
                         <textarea
@@ -691,6 +616,27 @@ const QuizManagement = () => {
                               </div>
                             ))}
                           </div>
+                          {/* Per-question time limit input */}
+                          <div className="mb-2">
+                            <label className="form-label">
+                              Time Limit (seconds)
+                            </label>
+                            <input
+                              type="number"
+                              className="form-control"
+                              value={question.questionTimeLimit}
+                              onChange={(e) =>
+                                updateQuestion(
+                                  questionIndex,
+                                  "questionTimeLimit",
+                                  parseInt(e.target.value)
+                                )
+                              }
+                              min="5"
+                              max="600"
+                              required
+                            />
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -764,133 +710,6 @@ const QuizManagement = () => {
                   Copy Quiz
                 </button>
               </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* AI Generation Modal */}
-      {showAIModal && (
-        <div
-          className="modal fade show"
-          style={{ display: "block", backgroundColor: "rgba(0,0,0,0.5)" }}
-        >
-          <div className="modal-dialog">
-            <div className="modal-content">
-              <div className="modal-header">
-                <h5 className="modal-title">
-                  <i className="fas fa-robot me-2"></i>
-                  AI Quiz Generation
-                </h5>
-                <button
-                  type="button"
-                  className="btn-close"
-                  onClick={() => setShowAIModal(false)}
-                ></button>
-              </div>
-              <form onSubmit={handleGenerateAI}>
-                <div className="modal-body">
-                  <div className="alert alert-info">
-                    <i className="fas fa-info-circle me-2"></i>
-                    <strong>AI Quiz Generator:</strong> Enter a topic and let AI create quiz questions for you automatically!
-                  </div>
-
-                  <div className="mb-3">
-                    <label className="form-label">
-                      <i className="fas fa-lightbulb me-2"></i>
-                      Topic
-                    </label>
-                    <input
-                      type="text"
-                      className="form-control"
-                      value={aiForm.topic}
-                      onChange={(e) =>
-                        setAiForm({ ...aiForm, topic: e.target.value })
-                      }
-                      placeholder="e.g., JavaScript fundamentals, World History, Biology..."
-                      required
-                    />
-                    <small className="text-muted">
-                      Be specific for better results (e.g., "React Hooks" instead of just "React")
-                    </small>
-                  </div>
-
-                  <div className="row">
-                    <div className="col-md-6 mb-3">
-                      <label className="form-label">
-                        <i className="fas fa-list-ol me-2"></i>
-                        Number of Questions
-                      </label>
-                      <select
-                        className="form-select"
-                        value={aiForm.numQuestions}
-                        onChange={(e) =>
-                          setAiForm({
-                            ...aiForm,
-                            numQuestions: parseInt(e.target.value),
-                          })
-                        }
-                      >
-                        <option value={3}>3 Questions</option>
-                        <option value={5}>5 Questions</option>
-                        <option value={10}>10 Questions</option>
-                        <option value={15}>15 Questions</option>
-                        <option value={20}>20 Questions</option>
-                      </select>
-                    </div>
-
-                    <div className="col-md-6 mb-3">
-                      <label className="form-label">
-                        <i className="fas fa-chart-line me-2"></i>
-                        Difficulty Level
-                      </label>
-                      <select
-                        className="form-select"
-                        value={aiForm.difficulty}
-                        onChange={(e) =>
-                          setAiForm({ ...aiForm, difficulty: e.target.value })
-                        }
-                      >
-                        <option value="easy">Easy</option>
-                        <option value="medium">Medium</option>
-                        <option value="hard">Hard</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="alert alert-warning">
-                    <i className="fas fa-exclamation-triangle me-2"></i>
-                    <strong>Note:</strong> AI-generated questions will replace any existing questions in your quiz form. Review and edit them before saving.
-                  </div>
-                </div>
-                <div className="modal-footer">
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={() => setShowAIModal(false)}
-                    disabled={aiGenerating}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="btn btn-info"
-                    disabled={aiGenerating || !aiForm.topic.trim()}
-                  >
-                    {aiGenerating ? (
-                      <>
-                        <span className="spinner-border spinner-border-sm me-2"></span>
-                        Generating...
-                      </>
-                    ) : (
-                      <>
-                        <i className="fas fa-magic me-2"></i>
-                        Generate Questions
-                      </>
-                    )}
-                  </button>
-                </div>
-              </form>
             </div>
           </div>
         </div>

@@ -224,6 +224,7 @@ const StudentDashboard = () => (
 function App() {
     return (
         <div className="App">
+            {/* <AuthDebug /> */}
             <Navbar />
             <Routes>
                 {/* Public Routes */}
@@ -231,7 +232,7 @@ function App() {
                 <Route path="/register" element={<Register />} />
                 
                 {/* Debug Route (development only) */}
-                {/* <Route path="/debug" element={<DebugAuth />} /> */}
+                <Route path="/debug" element={<DebugAuth />} />
                 
                 {/* Default redirect based on auth state */}
                 <Route path="/" element={<DefaultRoute />} />

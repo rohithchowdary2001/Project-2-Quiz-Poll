@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../services/api';
@@ -12,94 +12,46 @@ const QuizTaking = () => {
     const [submission, setSubmission] = useState(null);
     const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
     const [answers, setAnswers] = useState({});
-    const [questionTimeLeft, setQuestionTimeLeft] = useState(0); // per-question timer only
+    const [questionTimeLeft, setQuestionTimeLeft] = useState(0);
     const questionTimerRef = useRef();
     const [loading, setLoading] = useState(true);
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState('');
     const [showConfirmSubmit, setShowConfirmSubmit] = useState(false);
 
-    // Refs to maintain current state for timer callbacks
-    const currentQuestionIndexRef = useRef(currentQuestionIndex);
-    const answersRef = useRef(answers);
-    const submissionRef = useRef(submission);
-    const quizRef = useRef(quiz);
-
-    // Update refs when state changes
-    useEffect(() => {
-        currentQuestionIndexRef.current = currentQuestionIndex;
-    }, [currentQuestionIndex]);
-
-    useEffect(() => {
-        answersRef.current = answers;
-    }, [answers]);
-
-    useEffect(() => {
-        submissionRef.current = submission;
-    }, [submission]);
-
-    useEffect(() => {
-        quizRef.current = quiz;
-    }, [quiz]);
-
     useEffect(() => {
         if (quizId) {
             startQuiz();
         }
-        
-        // Add socket connection logging
-        socket.on('connect', () => {
-            console.log('Socket connected in QuizTaking:', socket.id);
-        });
-        
-        socket.on('disconnect', () => {
-            console.log('Socket disconnected in QuizTaking');
-        });
-        
-        socket.on('connect_error', (error) => {
-            console.error('Socket connection error in QuizTaking:', error);
-        });
-        
-        return () => {
-            socket.off('connect');
-            socket.off('disconnect');
-            socket.off('connect_error');
-        };
     }, [quizId]);
 
-    // Per-question timer effect
-  useEffect(() => {
-    if (!quiz || !quiz.questions || !quiz.questions[currentQuestionIndex]) return;
+useEffect(() => {
+    if (!quiz) return;
 
-    const currentQuestion = quiz.questions[currentQuestionIndex];
-    const timeLimit = currentQuestion.questionTimeLimit || 30; // Use camelCase field name
-    console.log('Setting up timer for question:', currentQuestion.id, 'Time limit:', timeLimit, 'seconds');
-    console.log('Question data:', currentQuestion); // Debug: show full question data
+    const timeLimit = quiz.questionTimeLimit || 30; // Use quiz-level time limit
     setQuestionTimeLeft(timeLimit);
 
     if (questionTimerRef.current) clearInterval(questionTimerRef.current);
 
     questionTimerRef.current = setInterval(() => {
         setQuestionTimeLeft(prev => {
-            const newTime = prev - 1;
-            console.log('Question timer tick - Time left:', newTime, 'seconds for question:', currentQuestion.id);
-            
-            if (newTime <= 0) {
-                console.log('⏰ TIMER EXPIRED! Calling handleTimeExpired for question:', currentQuestion.id);
+            if (prev <= 1) {
                 clearInterval(questionTimerRef.current);
-                // Auto-move to next question or submit quiz
-                handleTimeExpired();
+                if (currentQuestionIndex === quiz.questions.length - 1) {
+                    // Last question: auto-submit the quiz
+                    handleCompleteQuiz();
+                } else {
+                    // Not last question: move to next question
+                    setCurrentQuestionIndex(currentQuestionIndex + 1);
+                }
                 return 0;
             }
-            return newTime;
+            return prev - 1;
         });
     }, 1000);
 
     return () => {
-        if (questionTimerRef.current) {
-            console.log('Cleaning up timer for question:', currentQuestion.id);
-            clearInterval(questionTimerRef.current);
-        }
+        if (questionTimerRef.current) clearInterval(questionTimerRef.current);
     };
 }, [currentQuestionIndex, quiz]);
 
@@ -121,99 +73,44 @@ const QuizTaking = () => {
         }
     };
 
-    const handleTimeExpired = useCallback(async () => {
-        console.log('🚨 Timer expired! Getting current state from refs...');
-        
-        // Use refs to get current state (avoiding stale closure)
-        const currentQuestionIdx = currentQuestionIndexRef.current;
-        const currentAnswers = answersRef.current;
-        const currentSubmission = submissionRef.current;
-        const currentQuiz = quizRef.current;
-        
-        if (!currentQuiz || !currentQuiz.questions || !currentQuiz.questions[currentQuestionIdx]) {
-            console.log('No current question found, quiz:', !!currentQuiz, 'questions:', !!currentQuiz?.questions, 'index:', currentQuestionIdx);
-            return;
-        }
-        
-        const currentQuestion = currentQuiz.questions[currentQuestionIdx];
-        const answer = currentAnswers[currentQuestion.id];
-
-        console.log('Timer expired! Current question:', currentQuestion.id, 'Answer:', answer, 'Type:', typeof answer);
-        console.log('Current answers state:', currentAnswers);
-        console.log('Current question index:', currentQuestionIdx);
-
-        // Submit current answer if it exists (check for valid option ID)
-        if (currentSubmission && answer != null && answer !== undefined) {
-            try {
-                console.log('Auto-submitting answer on time expiry for question:', currentQuestion.id, 'answer:', answer);
-                
-                const response = await api.post('/submissions/answer', {
-                    submissionId: currentSubmission.id,
-                    questionId: currentQuestion.id,
-                    selectedOptionId: answer
-                });
-                
-                console.log('✅ Auto-submitted answer successfully for question:', currentQuestion.id, 'Response:', response.data);
-            } catch (err) {
-                console.error('❌ Failed to auto-submit answer:', err.response?.data || err.message);
-            }
-        } else {
-            console.log('⚠️ No answer to auto-submit for question:', currentQuestion.id, 'Answer value:', answer, 'Type:', typeof answer);
-        }
-
-        // Small delay to ensure submission is processed
-        await new Promise(resolve => setTimeout(resolve, 100));
-
-        // Move to next question or complete quiz
-        if (currentQuestionIdx === currentQuiz.questions.length - 1) {
-            // Last question - auto-submit quiz (skip final answer submission since we just did it)
-            console.log('Time expired on last question, completing quiz (skipping duplicate answer submission)');
-            handleCompleteQuiz(true); // Skip final answer submission
-        } else {
-            // Move to next question
-            console.log('Time expired, moving to next question:', currentQuestionIdx + 1);
-            setCurrentQuestionIndex(currentQuestionIdx + 1);
-        }
-    }, []); // Empty dependency array since we're using refs
-
     const handleAnswerSelect = async (questionId, optionId) => {
-        // Just update local state - don't submit to server yet
-        const newAnswers = {
-            ...answers,
-            [questionId]: optionId
-        };
-        
-        setAnswers(newAnswers);
-        
-        console.log('Answer selected locally for question:', questionId, 'option:', optionId, 'type:', typeof optionId);
-        console.log('Updated answers state:', newAnswers);
+        try {
+            await api.post('/submissions/answer', {
+                submissionId: submission.id,
+                questionId: questionId,
+                selectedOptionId: optionId
+            });
+            setAnswers({
+                ...answers,
+                [questionId]: optionId
+            });
+        } catch (err) {
+            setError(err.response?.data?.message || 'Failed to submit answer');
+        }
     };
 
     const handleNextQuestion = async () => {
         const currentQuestion = quiz.questions[currentQuestionIndex];
         const answer = answers[currentQuestion.id];
 
-        console.log('Next button clicked. Current question:', currentQuestion.id, 'Answer:', answer, 'Type:', typeof answer);
-
-        // Submit the answer when moving to next question
-        if (submission && answer != null && answer !== undefined) {
+        // Only submit if an answer exists
+        if (submission && answer !== undefined && answer !== '') {
             try {
-                console.log('Submitting answer when moving to next question:', currentQuestion.id, 'answer:', answer);
-                
                 await api.post('/submissions/answer', {
                     submissionId: submission.id,
                     questionId: currentQuestion.id,
                     selectedOptionId: answer
                 });
 
-                console.log('Answer submitted successfully for question:', currentQuestion.id);
+                socket.emit('studentAnswerUpdate', {
+                    submissionId: submission.id,
+                    quizId: quizId,
+                    questionId: currentQuestion.id,
+                    selectedOptionId: answer
+                });
             } catch (err) {
-                console.error('Failed to submit answer:', err);
                 setError(err.response?.data?.message || 'Failed to submit answer');
-                return; // Don't move to next question if submission failed
             }
-        } else {
-            console.log('No answer to submit for question:', currentQuestion.id, 'Answer value:', answer, 'Type:', typeof answer);
         }
 
         // Move to next question
@@ -222,108 +119,25 @@ const QuizTaking = () => {
         }
     };
 
-    const handlePreviousQuestion = async () => {
-        const currentQuestion = quiz.questions[currentQuestionIndex];
-        const answer = answers[currentQuestion.id];
-
-        console.log('Previous button clicked. Current question:', currentQuestion.id, 'Answer:', answer, 'Type:', typeof answer);
-
-        // Submit the current question's answer before going back
-        if (submission && answer != null && answer !== undefined) {
-            try {
-                console.log('Submitting answer before going to previous question:', currentQuestion.id);
-                
-                await api.post('/submissions/answer', {
-                    submissionId: submission.id,
-                    questionId: currentQuestion.id,
-                    selectedOptionId: answer
-                });
-
-                console.log('Answer submitted successfully before going back');
-            } catch (err) {
-                console.error('Failed to submit answer before going back:', err);
-                setError(err.response?.data?.message || 'Failed to submit answer');
-            }
-        } else {
-            console.log('No answer to submit for question:', currentQuestion.id, 'Answer value:', answer, 'Type:', typeof answer);
-        }
-
+    const handlePreviousQuestion = () => {
         if (currentQuestionIndex > 0) {
             setCurrentQuestionIndex(currentQuestionIndex - 1);
         }
     };
 
-    const handleQuestionJump = async (index) => {
-        const currentQuestion = quiz.questions[currentQuestionIndex];
-        const answer = answers[currentQuestion.id];
-
-        // Submit the current question's answer before jumping
-        if (submission && answer !== undefined && answer !== '') {
-            try {
-                console.log('Submitting answer before jumping from question:', currentQuestion.id, 'to question:', index + 1);
-                
-                await api.post('/submissions/answer', {
-                    submissionId: submission.id,
-                    questionId: currentQuestion.id,
-                    selectedOptionId: answer
-                });
-
-                console.log('Answer submitted successfully before jumping');
-            } catch (err) {
-                console.error('Failed to submit answer before jumping:', err);
-                setError(err.response?.data?.message || 'Failed to submit answer');
-            }
-        }
-
+    const handleQuestionJump = (index) => {
         setCurrentQuestionIndex(index);
     };
 
-    const handleCompleteQuiz = async (skipFinalAnswerSubmission = false) => {
+    const handleCompleteQuiz = async () => {
         try {
             setSubmitting(true);
-            
-            // Submit the current question's answer before completing the quiz (unless already submitted)
-            if (!skipFinalAnswerSubmission && quiz && quiz.questions && quiz.questions[currentQuestionIndex]) {
-                const currentQuestion = quiz.questions[currentQuestionIndex];
-                const answer = answers[currentQuestion.id];
-                
-                console.log('Before completing quiz - submitting final answer for question:', currentQuestion.id, 'answer:', answer);
-                
-                if (submission && answer != null && answer !== undefined) {
-                    try {
-                        console.log('Submitting final answer before quiz completion:', currentQuestion.id, 'answer:', answer);
-                        
-                        await api.post('/submissions/answer', {
-                            submissionId: submission.id,
-                            questionId: currentQuestion.id,
-                            selectedOptionId: answer
-                        });
-                        
-                        console.log('Final answer submitted successfully for question:', currentQuestion.id);
-                    } catch (err) {
-                        console.error('Failed to submit final answer:', err);
-                        // Continue with quiz completion even if final answer submission fails
-                    }
-                } else {
-                    console.log('No final answer to submit for question:', currentQuestion.id, 'Answer value:', answer, 'Type:', typeof answer);
-                }
-            } else if (skipFinalAnswerSubmission) {
-                console.log('Skipping final answer submission (already submitted by timer)');
-            }
-            
-            // Small delay to ensure answer is processed
-            await new Promise(resolve => setTimeout(resolve, 300));
-            
-            console.log('Completing quiz with submission ID:', submission.id);
             const response = await api.post('/submissions/complete', {
                 submissionId: submission.id
             });
-            
-            console.log('✅ Quiz completed successfully!', response.data);
             alert(`Quiz completed! Your score: ${response.data.result.score}/${response.data.result.maxScore} (${response.data.result.percentage}%)`);
             navigate('/student/history');
         } catch (err) {
-            console.error('❌ Failed to complete quiz:', err);
             setError(err.response?.data?.message || 'Failed to complete quiz');
         } finally {
             setSubmitting(false);
@@ -405,12 +219,11 @@ const QuizTaking = () => {
                                     <small className="text-muted">{progress}% completed</small>
                                 </div>
                                 <div className="col-md-4 text-end">
-                                    {/* Per-question timer */}
-                                    <div className="h4 mb-0 text-warning">
+                                    {/* Per-question timer only */}
+                                    <div className="h6 mt-2 text-warning">
                                         <i className="fas fa-stopwatch me-2"></i>
-                                        Time left: {questionTimeLeft}s
+                                        Time left for this question: {questionTimeLeft}s
                                     </div>
-                                    <small className="text-muted">Auto-moves when time expires</small>
                                 </div>
                             </div>
                         </div>
@@ -513,18 +326,6 @@ const QuizTaking = () => {
                                     <small className="text-muted">
                                         {Object.keys(answers).length} of {quiz.questions.length} questions answered
                                     </small>
-                                    <br />
-                                    {/* TEST BUTTON - Remove in production */}
-                                    <button
-                                        className="btn btn-outline-warning btn-sm mt-1"
-                                        onClick={() => {
-                                            console.log('🧪 TEST: Manually triggering timer expiry');
-                                            handleTimeExpired();
-                                        }}
-                                        style={{ fontSize: '11px' }}
-                                    >
-                                        Test Timer Expiry
-                                    </button>
                                 </div>
 
                                 {currentQuestionIndex === quiz.questions.length - 1 ? (
@@ -575,8 +376,7 @@ const QuizTaking = () => {
                                     <small>
                                         <strong>Summary:</strong><br/>
                                         • Questions answered: {Object.keys(answers).length} of {quiz.questions.length}<br/>
-                                        • Unanswered questions: {quiz.questions.length - Object.keys(answers).length}<br/>
-                                        • Current question time: {questionTimeLeft}s remaining
+                                        • Unanswered questions: {quiz.questions.length - Object.keys(answers).length}
                                     </small>
                                 </div>
                                 <p className="text-warning">
