@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
-import socket from '../../services/socket';
 
 const AvailableQuizzes = () => {
     const { user } = useAuth();
@@ -16,52 +15,11 @@ const AvailableQuizzes = () => {
     useEffect(() => {
         fetchAvailableQuizzes();
         fetchEnrolledClasses();
-        
-        // Join user room for receiving personal notifications
-        if (user?.id) {
-            console.log(`📡 Joining user room: user_${user.id}`);
-            socket.emit('join_user_room', user.id);
-        } else {
-            console.log(`⚠️ User not available for socket room join:`, user);
-        }
-    }, [user]);
+    }, []);
 
     useEffect(() => {
         fetchAvailableQuizzes();
     }, [selectedClassId]);
-
-    // Listen for quiz status changes via socket
-    useEffect(() => {
-        const handleQuizStatusChanged = (data) => {
-            console.log('📡 Quiz status changed received:', data);
-            
-            // Update the specific quiz in our local state
-            setQuizzes(prev => {
-                const updated = prev.map(quiz => 
-                    quiz.id === data.quizId 
-                        ? { ...quiz, is_live_active: data.isLiveActive }
-                        : quiz
-                );
-                console.log('📡 Quizzes updated:', updated);
-                return updated;
-            });
-            
-            // Show notification to user
-            if (data.isLiveActive) {
-                console.log(`✅ Quiz "${data.quiz.title}" is now available for taking!`);
-            } else {
-                console.log(`❌ Quiz "${data.quiz.title}" is no longer available for taking.`);
-            }
-        };
-
-        console.log('📡 Setting up socket listener for quizStatusChanged');
-        socket.on('quizStatusChanged', handleQuizStatusChanged);
-
-        return () => {
-            console.log('📡 Cleaning up socket listener for quizStatusChanged');
-            socket.off('quizStatusChanged', handleQuizStatusChanged);
-        };
-    }, []);
 
     const fetchAvailableQuizzes = async () => {
         try {
@@ -146,7 +104,7 @@ const AvailableQuizzes = () => {
 
     const canStartQuiz = (quiz) => {
         const status = getQuizStatus(quiz);
-        return status === 'Available' && quiz.is_live_active === true;
+        return status === 'Available';
     };
 
     const canContinueQuiz = (quiz) => {
@@ -221,23 +179,9 @@ const AvailableQuizzes = () => {
                                 <div className="card h-100">
                                     <div className="card-header d-flex justify-content-between align-items-center">
                                         <h5 className="mb-0">{quiz.title}</h5>
-                                        <div className="d-flex flex-column align-items-end">
-                                            <span className={`badge ${getStatusBadgeClass(status)} mb-1`}>
-                                                {status}
-                                            </span>
-                                            <span className={`badge ${
-                                                quiz.is_live_active 
-                                                    ? 'bg-success' 
-                                                    : 'bg-secondary'
-                                            }`}>
-                                                <i className={`fas ${
-                                                    quiz.is_live_active 
-                                                        ? 'fa-broadcast-tower' 
-                                                        : 'fa-pause-circle'
-                                                } me-1`}></i>
-                                                {quiz.is_live_active ? 'Live' : 'Paused'}
-                                            </span>
-                                        </div>
+                                        <span className={`badge ${getStatusBadgeClass(status)}`}>
+                                            {status}
+                                        </span>
                                     </div>
                                     <div className="card-body">
                                         <p className="card-text text-muted">{quiz.description}</p>
@@ -294,15 +238,6 @@ const AvailableQuizzes = () => {
                                                 <i className="fas fa-play me-2"></i>
                                                 Start Quiz
                                             </button>
-                                        )}
-                                        {getQuizStatus(quiz) === 'Available' && !quiz.is_live_active && (
-                                            <div className="alert alert-warning mb-0 py-2">
-                                                <small>
-                                                    <i className="fas fa-pause-circle me-1"></i>
-                                                    <strong>Quiz is paused by professor.</strong> 
-                                                    <br />Please wait for the professor to activate it.
-                                                </small>
-                                            </div>
                                         )}
                                         {canContinueQuiz(quiz) && (
                                             <button 
