@@ -80,7 +80,6 @@ CREATE TABLE questions (
     question_type ENUM('multiple_choice', 'single_choice', 'true_false') DEFAULT 'single_choice',
     question_order INT NOT NULL,
     points INT DEFAULT 1,
-    question_time_limit INT DEFAULT 30,
     is_required BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
