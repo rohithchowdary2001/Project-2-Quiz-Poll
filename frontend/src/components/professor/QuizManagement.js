@@ -301,12 +301,21 @@ const QuizManagement = () => {
   };
 
   const getStatusBadge = (quiz) => {
-    const now = new Date();
-    const deadline = quiz.deadline ? new Date(quiz.deadline) : null;
-    if (deadline && now > deadline) {
-      return <span className="badge bg-danger">Expired</span>;
+    if (quiz.is_live_active) {
+      return (
+        <span className="badge bg-success">
+          <i className="fas fa-play me-1"></i>
+          Active
+        </span>
+      );
+    } else {
+      return (
+        <span className="badge bg-warning text-dark">
+          <i className="fas fa-pause me-1"></i>
+          Paused
+        </span>
+      );
     }
-    return <span className="badge bg-success">Active</span>;
   };
 
   if (loading) {
@@ -402,7 +411,6 @@ const QuizManagement = () => {
                     <th>Submissions</th>
                     <th>Deadline</th>
                     <th>Status</th>
-                    <th>Live Status</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
@@ -435,24 +443,26 @@ const QuizManagement = () => {
                       <td>{quiz.question_count || 0}</td>
                       <td>{quiz.submission_count || 0}</td>
                       <td>{formatDate(quiz.deadline)}</td>
-                      <td>{getStatusBadge(quiz)}</td>
                       <td>
-                        <button
-                          className={`btn btn-sm ${
-                            quiz.is_live_active 
-                              ? 'btn-success' 
-                              : 'btn-outline-secondary'
-                          }`}
-                          onClick={() => handleToggleQuizLiveActive(quiz.id, quiz.is_live_active)}
-                          title={`Click to ${quiz.is_live_active ? 'deactivate' : 'activate'} quiz for students`}
-                        >
-                          <i className={`fas ${
-                            quiz.is_live_active 
-                              ? 'fa-toggle-on' 
-                              : 'fa-toggle-off'
-                          } me-1`}></i>
-                          {quiz.is_live_active ? 'Active' : 'Inactive'}
-                        </button>
+                        <div className="d-flex align-items-center justify-content-between">
+                          {getStatusBadge(quiz)}
+                          <button
+                            className={`btn btn-sm ms-2 ${
+                              quiz.is_live_active 
+                                ? 'btn-outline-warning' 
+                                : 'btn-outline-success'
+                            }`}
+                            onClick={() => handleToggleQuizLiveActive(quiz.id, quiz.is_live_active)}
+                            title={`Click to ${quiz.is_live_active ? 'pause' : 'activate'} quiz for students`}
+                          >
+                            <i className={`fas ${
+                              quiz.is_live_active 
+                                ? 'fa-pause' 
+                                : 'fa-play'
+                            } me-1`}></i>
+                            {quiz.is_live_active ? 'Pause' : 'Activate'}
+                          </button>
+                        </div>
                       </td>
                       <td>
                         <div className="btn-group" role="group">
