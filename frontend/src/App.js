@@ -13,7 +13,7 @@ import Register from './components/auth/Register';
 // Admin Components
 import UserManagement from './components/admin/UserManagement';
 import Analytics from './components/admin/Analytics';
-import AuditLogs from './components/admin/AuditLogs';
+import AuditLogs from './components/admin/Auditlogs';
 
 // Professor Components
 import ClassManagement from './components/professor/ClassManagement';
