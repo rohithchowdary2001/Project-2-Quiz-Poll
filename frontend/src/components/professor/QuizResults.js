@@ -31,24 +31,7 @@ const QuizResults = () => {
             socket.off('connect_error');
         };
     }, []);
-    useEffect(() => {
-        console.log('Setting up quiz results listener for quiz:', quizId);
-        // Note: Not joining rooms since socket connection has issues
-        // socket.emit('joinQuizResults', quizId);
-    }, [quizId]);
 
-    useEffect(() => {
-        socket.on('quizResultsUpdated', (data) => {
-            console.log('Received quizResultsUpdated:', data);
-            if (String(data.quizId) === String(quizId)) {
-                console.log('Refreshing quiz results for quiz:', quizId);
-                fetchQuizResults(); // This should refresh the results
-            }
-        });
-        return () => {
-            socket.off('quizResultsUpdated');
-        };
-    }, [quizId, sortBy, sortOrder]);
     useEffect(() => {
         if (quizId) {
             fetchQuizResults();
@@ -366,7 +349,7 @@ const QuizResults = () => {
                                 </h6>
                                 <div className="row">
                                     {question.options.map(option => (
-                                        <div key={option.optionId} className="col-md-6 mb-2">
+                                        <div key={`${question.questionId}-${option.optionId}-${option.selectionCount}`} className="col-md-6 mb-2">
                                             <div className={`card ${option.isCorrect ? 'border-success' : ''}`}>
                                                 <div className="card-body py-2">
                                                     <div className="d-flex justify-content-between align-items-center">
@@ -383,8 +366,12 @@ const QuizResults = () => {
                                                     </div>
                                                     <div className="progress mt-1" style={{ height: '4px' }}>
                                                         <div 
+                                                            key={`progress-${option.optionId}-${option.percentage}-${option.selectionCount}`}
                                                             className={`progress-bar ${option.isCorrect ? 'bg-success' : 'bg-primary'}`}
-                                                            style={{ width: `${option.percentage}%` }}
+                                                            style={{ 
+                                                                width: `${option.percentage}%`,
+                                                                transition: 'width 0.5s ease-in-out'
+                                                            }}
                                                         ></div>
                                                     </div>
                                                 </div>

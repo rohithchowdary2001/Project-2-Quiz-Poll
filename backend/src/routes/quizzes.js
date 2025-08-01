@@ -913,6 +913,157 @@ class QuizController {
       next(error);
     }
   }
+
+  // Copy quiz to another class
+  static async copyQuiz(req, res, next) {
+    try {
+      console.log('📋 Copy Quiz Request:', req.params.id, req.body);
+      
+      const quizId = parseInt(req.params.id);
+      const { targetClassId } = req.body;
+
+      // Validate quiz ID and target class ID
+      if (isNaN(quizId) || !targetClassId) {
+        console.error('❌ Validation Error: Missing quiz ID or target class ID');
+        throw ErrorHandler.validationError("Quiz ID and target class ID are required");
+      }
+
+      console.log('🔍 Looking for quiz:', quizId, 'owned by professor:', req.user.id);
+
+      // Validate that professor owns the original quiz
+      const originalQuiz = await database.findOne("quizzes", {
+        id: quizId,
+        professor_id: req.user.id
+      });
+
+      if (!originalQuiz) {
+        console.error('❌ Quiz not found or permission denied');
+        throw ErrorHandler.notFoundError("Quiz not found or you do not have permission");
+      }
+
+      console.log('✅ Original quiz found:', originalQuiz.title);
+
+      // Validate that professor owns the target class
+      const targetClass = await database.findOne("classes", {
+        id: targetClassId,
+        professor_id: req.user.id
+      });
+
+      if (!targetClass) {
+        console.error('❌ Target class not found or permission denied');
+        throw ErrorHandler.notFoundError("Target class not found or you do not have permission");
+      }
+
+      console.log('✅ Target class found:', targetClass.name);
+
+      // Get the original quiz with all details
+      const quizData = await database.query(`
+        SELECT * FROM quizzes WHERE id = ?
+      `, [quizId]);
+
+      if (quizData.length === 0) {
+        console.error('❌ Quiz data not found');
+        throw ErrorHandler.notFoundError("Quiz not found");
+      }
+
+      const quiz = quizData[0];
+      console.log('📝 Creating new quiz copy...');
+
+      // Create new quiz with copied data
+      const newQuizData = {
+        title: `${quiz.title} (Copy)`,
+        description: quiz.description,
+        class_id: targetClassId,
+        professor_id: req.user.id,
+        deadline: quiz.deadline,
+        time_limit_minutes: quiz.time_limit_minutes,
+        is_active: true,
+        is_live_active: false, // New copy should start as inactive
+        created_at: new Date(),
+        updated_at: new Date()
+      };
+
+      // Insert new quiz
+      const newQuizResult = await database.insert("quizzes", newQuizData);
+      const newQuizId = newQuizResult.insertId;
+      console.log('✅ New quiz created with ID:', newQuizId);
+
+      // Get all questions from the original quiz
+      const questions = await database.query(`
+        SELECT * FROM questions WHERE quiz_id = ? ORDER BY question_order
+      `, [quizId]);
+
+      console.log('📋 Copying', questions.length, 'questions...');
+
+      // Copy each question and its options
+      for (const question of questions) {
+        const newQuestionData = {
+          quiz_id: newQuizId,
+          question_text: question.question_text,
+          question_type: question.question_type,
+          question_order: question.question_order,
+          points: question.points,
+          question_time_limit: question.question_time_limit,
+          is_required: question.is_required,
+          created_at: new Date(),
+          updated_at: new Date()
+        };
+
+        const newQuestionResult = await database.insert("questions", newQuestionData);
+        const newQuestionId = newQuestionResult.insertId;
+
+        // Get all options for this question
+        const options = await database.query(`
+          SELECT * FROM answer_options WHERE question_id = ? ORDER BY option_order
+        `, [question.id]);
+
+        // Copy each option
+        for (const option of options) {
+          const newOptionData = {
+            question_id: newQuestionId,
+            option_text: option.option_text,
+            option_order: option.option_order,
+            is_correct: option.is_correct,
+            created_at: new Date()
+            // Note: answer_options table doesn't have updated_at column
+          };
+
+          await database.insert("answer_options", newOptionData);
+        }
+      }
+
+      console.log('✅ Quiz copy completed successfully');
+
+      // Log the action
+      await AuditLogger.logUserAction(
+        req.user.id,
+        "QUIZ_COPY",
+        "quizzes",
+        newQuizId,
+        { original_quiz_id: quizId },
+        { 
+          new_quiz_id: newQuizId, 
+          target_class_id: targetClassId,
+          title: newQuizData.title 
+        },
+        req
+      );
+
+      res.json({
+        message: "Quiz copied successfully",
+        quiz: {
+          id: newQuizId,
+          title: newQuizData.title,
+          class_name: targetClass.name,
+          question_count: questions.length
+        }
+      });
+
+    } catch (error) {
+      console.error('❌ Copy Quiz Error:', error);
+      next(error);
+    }
+  }
 }
 
 // Quiz routes
@@ -975,6 +1126,14 @@ router.patch(
   AuthMiddleware.verifyToken,
   AuthMiddleware.requireProfessor,
   ErrorHandler.asyncHandler(QuizController.toggleQuizLiveActive)
+);
+
+// Copy quiz to another class
+router.post(
+  "/:id/copy",
+  AuthMiddleware.verifyToken,
+  AuthMiddleware.requireProfessor,
+  ErrorHandler.asyncHandler(QuizController.copyQuiz)
 );
 
 module.exports = router;
