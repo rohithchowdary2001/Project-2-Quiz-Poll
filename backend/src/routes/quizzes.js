@@ -5,6 +5,7 @@ const database = require("../config/database");
 const AuthMiddleware = require("../middleware/auth");
 const ErrorHandler = require("../middleware/errorHandler");
 const AuditLogger = require("../middleware/auditLogger");
+const aiService = require("../services/aiService");
 
 class QuizController {
   // Get all quizzes (role-based filtering)
@@ -146,6 +147,7 @@ class QuizController {
             questionType: row.question_type,
             questionOrder: row.question_order,
             points: row.points,
+            questionTimeLimit: row.question_time_limit, // Add this field
             isRequired: row.is_required,
             options: [],
           });
@@ -755,6 +757,57 @@ class QuizController {
       next(error);
     }
   }
+
+  // Generate AI quiz questions
+  static async generateAIQuiz(req, res, next) {
+    try {
+      const { topic, numQuestions = 5, difficulty = 'medium' } = req.body;
+
+      // Validate required fields
+      if (!topic || topic.trim().length === 0) {
+        throw ErrorHandler.validationError("Topic is required for AI quiz generation");
+      }
+
+      // Validate parameters
+      const validDifficulties = ['easy', 'medium', 'hard'];
+      if (!validDifficulties.includes(difficulty)) {
+        throw ErrorHandler.validationError("Difficulty must be easy, medium, or hard");
+      }
+
+      const numQuestionsInt = parseInt(numQuestions);
+      if (isNaN(numQuestionsInt) || numQuestionsInt < 1 || numQuestionsInt > 20) {
+        throw ErrorHandler.validationError("Number of questions must be between 1 and 20");
+      }
+
+      // Generate questions using AI
+      const questions = await aiService.generateQuiz(topic.trim(), numQuestionsInt, difficulty);
+
+      // Log AI quiz generation
+      await AuditLogger.logUserAction(
+        req.user.id,
+        "AI_QUIZ_GENERATE",
+        "quizzes",
+        null,
+        null,
+        { topic, numQuestions: numQuestionsInt, difficulty, generatedQuestions: questions.length },
+        req
+      );
+
+      res.status(200).json({
+        message: "AI quiz generated successfully",
+        questions: questions,
+        metadata: {
+          topic: topic.trim(),
+          numQuestions: questions.length,
+          difficulty: difficulty,
+          generatedAt: new Date().toISOString()
+        }
+      });
+    } catch (error) {
+      console.error('AI Quiz Generation Error:', error);
+      next(error);
+    }
+  }
 }
 
 // Quiz routes
@@ -768,6 +821,12 @@ router.get(
   AuthMiddleware.verifyToken,
   AuthMiddleware.requireStudent,
   ErrorHandler.asyncHandler(QuizController.getAvailableQuizzes)
+);
+router.post(
+  "/generate-ai",
+  AuthMiddleware.verifyToken,
+  AuthMiddleware.requireProfessor,
+  ErrorHandler.asyncHandler(QuizController.generateAIQuiz)
 );
 router.get(
   "/:id",

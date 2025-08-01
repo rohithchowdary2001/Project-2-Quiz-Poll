@@ -23,6 +23,7 @@ import QuizResults from './components/professor/QuizResults';
 // Student Components
 import AvailableQuizzes from './components/student/AvailableQuizzes';
 import QuizHistory from './components/student/QuizHistory';
+import QuizResultsPage from './components/student/QuizResultsPage';
 import EnrolledClasses from './components/student/EnrolledClasses';
 import QuizTaking from './components/student/QuizTaking';
 import PollResults from './components/student/PollResults';
@@ -335,6 +336,14 @@ function App() {
                     element={
                         <ProtectedRoute requiredRole="student">
                             <QuizTaking />
+                        </ProtectedRoute>
+                    }
+                />
+                <Route
+                    path="/student/quiz-results/:submissionId"
+                    element={
+                        <ProtectedRoute requiredRole="student">
+                            <QuizResultsPage />
                         </ProtectedRoute>
                     }
                 />
