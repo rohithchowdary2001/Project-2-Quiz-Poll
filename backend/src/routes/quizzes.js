@@ -11,7 +11,7 @@ class QuizController {
   // Get all quizzes (role-based filtering)
   static async getAllQuizzes(req, res, next) {
     try {
-      const { classId, page = 1, limit = 10 } = req.query;
+      const { classId, page = 1, limit = 50 } = req.query;
       const user = req.user;
 
       let queryParams = [];
@@ -182,7 +182,7 @@ class QuizController {
   // Get available quizzes for students (includes submission status)
   static async getAvailableQuizzes(req, res, next) {
     try {
-      const { classId, page = 1, limit = 10 } = req.query;
+      const { classId, page = 1, limit = 50 } = req.query;
       const user = req.user;
 
       if (user.role !== "student") {
