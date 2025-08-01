@@ -808,6 +808,111 @@ class QuizController {
       next(error);
     }
   }
+
+  // Toggle quiz live active status (real-time activation/deactivation)
+  static async toggleQuizLiveActive(req, res, next) {
+    try {
+      const quizId = parseInt(req.params.id);
+      const { isLiveActive } = req.body;
+
+      // Validate quiz ID
+      if (isNaN(quizId)) {
+        throw ErrorHandler.validationError("Invalid quiz ID");
+      }
+
+      // Validate that professor owns the quiz
+      const quiz = await database.findOne("quizzes", {
+        id: quizId,
+        professor_id: req.user.id
+      });
+
+      if (!quiz) {
+        throw ErrorHandler.notFoundError("Quiz not found or you do not have permission");
+      }
+
+      // Update the live active status
+      const updateData = {
+        is_live_active: isLiveActive !== undefined ? isLiveActive : !quiz.is_live_active,
+        updated_at: new Date()
+      };
+
+      await database.update("quizzes", { id: quizId }, updateData);
+
+      // Get updated quiz data with class information
+      const updatedQuiz = await database.query(`
+        SELECT q.*, c.name as class_name, c.class_code 
+        FROM quizzes q 
+        JOIN classes c ON q.class_id = c.id 
+        WHERE q.id = ?
+      `, [quizId]);
+
+      if (updatedQuiz.length === 0) {
+        throw ErrorHandler.notFoundError("Quiz not found after update");
+      }
+
+      const quizData = updatedQuiz[0];
+
+      // Emit socket event to all students in the class about the quiz status change
+      const io = req.app.get('io');
+      console.log(`🔍 IO instance available:`, !!io);
+      
+      if (io) {
+        // Get all students enrolled in this class
+        const enrolledStudents = await database.query(`
+          SELECT u.id as user_id 
+          FROM class_enrollments ce 
+          JOIN users u ON ce.student_id = u.id 
+          WHERE ce.class_id = ? AND ce.is_active = true AND u.role = 'student'
+        `, [quiz.class_id]);
+
+        console.log(`🔍 Found ${enrolledStudents.length} enrolled students:`, enrolledStudents.map(s => s.user_id));
+
+        // Emit to all enrolled students
+        enrolledStudents.forEach(student => {
+          console.log(`📡 Emitting to user_${student.user_id}`);
+          io.to(`user_${student.user_id}`).emit('quizStatusChanged', {
+            quizId: quizId,
+            isLiveActive: updateData.is_live_active,
+            quiz: {
+              id: quizData.id,
+              title: quizData.title,
+              class_name: quizData.class_name,
+              class_code: quizData.class_code
+            }
+          });
+        });
+
+        console.log(`📡 Quiz ${quizId} status changed to ${updateData.is_live_active ? 'ACTIVE' : 'INACTIVE'} - notified ${enrolledStudents.length} students`);
+      } else {
+        console.error('❌ IO instance not available in req.app');
+      }
+
+      // Log the action
+      await AuditLogger.logUserAction(
+        req.user.id,
+        updateData.is_live_active ? "QUIZ_ACTIVATE" : "QUIZ_DEACTIVATE",
+        "quizzes",
+        quizId,
+        { is_live_active: quiz.is_live_active },
+        { is_live_active: updateData.is_live_active },
+        req
+      );
+
+      res.json({
+        message: `Quiz ${updateData.is_live_active ? 'activated' : 'deactivated'} successfully`,
+        quiz: {
+          id: quizData.id,
+          title: quizData.title,
+          is_live_active: updateData.is_live_active,
+          class_name: quizData.class_name
+        }
+      });
+
+    } catch (error) {
+      console.error('Toggle Quiz Live Active Error:', error);
+      next(error);
+    }
+  }
 }
 
 // Quiz routes
@@ -862,6 +967,14 @@ router.get(
   AuthMiddleware.verifyToken,
   AuthMiddleware.requireProfessor,
   ErrorHandler.asyncHandler(QuizController.getQuizResults)
+);
+
+// Toggle quiz live activation status
+router.patch(
+  "/:id/toggle-live-active",
+  AuthMiddleware.verifyToken,
+  AuthMiddleware.requireProfessor,
+  ErrorHandler.asyncHandler(QuizController.toggleQuizLiveActive)
 );
 
 module.exports = router;

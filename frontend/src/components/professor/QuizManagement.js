@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useAuth } from "../../context/AuthContext";
+import { Link } from "react-router-dom";
 import api from "../../services/api";
 import socket from "../../services/socket";
 
@@ -159,6 +160,31 @@ const QuizManagement = () => {
       alert("Quiz copied successfully!");
     } catch (err) {
       alert(err.response?.data?.message || "Failed to copy quiz");
+    }
+  };
+
+  const handleToggleQuizLiveActive = async (quizId, currentStatus) => {
+    try {
+      const newStatus = !currentStatus;
+      console.log(`🔄 Toggling quiz ${quizId} from ${currentStatus} to ${newStatus}`);
+      
+      const response = await api.patch(`/quizzes/${quizId}/toggle-live-active`, {
+        isLiveActive: newStatus
+      });
+      
+      console.log(`📡 Toggle response:`, response.data);
+      
+      // Update the quiz in local state immediately for better UX
+      setQuizzes(prev => prev.map(quiz => 
+        quiz.id === quizId 
+          ? { ...quiz, is_live_active: newStatus }
+          : quiz
+      ));
+      
+      console.log(`✅ Quiz ${quizId} ${newStatus ? 'activated' : 'deactivated'} successfully`);
+    } catch (err) {
+      console.error('❌ Failed to toggle quiz status:', err);
+      setError(err.response?.data?.message || 'Failed to update quiz status');
     }
   };
 
@@ -376,6 +402,7 @@ const QuizManagement = () => {
                     <th>Submissions</th>
                     <th>Deadline</th>
                     <th>Status</th>
+                    <th>Live Status</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
@@ -410,14 +437,32 @@ const QuizManagement = () => {
                       <td>{formatDate(quiz.deadline)}</td>
                       <td>{getStatusBadge(quiz)}</td>
                       <td>
+                        <button
+                          className={`btn btn-sm ${
+                            quiz.is_live_active 
+                              ? 'btn-success' 
+                              : 'btn-outline-secondary'
+                          }`}
+                          onClick={() => handleToggleQuizLiveActive(quiz.id, quiz.is_live_active)}
+                          title={`Click to ${quiz.is_live_active ? 'deactivate' : 'activate'} quiz for students`}
+                        >
+                          <i className={`fas ${
+                            quiz.is_live_active 
+                              ? 'fa-toggle-on' 
+                              : 'fa-toggle-off'
+                          } me-1`}></i>
+                          {quiz.is_live_active ? 'Active' : 'Inactive'}
+                        </button>
+                      </td>
+                      <td>
                         <div className="btn-group" role="group">
-                          <a
-                            href={`/professor/quiz-results/${quiz.id}`}
+                          <Link
+                            to={`/professor/quiz-results/${quiz.id}`}
                             className="btn btn-sm btn-outline-primary"
                           >
                             <i className="fas fa-chart-bar me-1"></i>
                             More...
-                          </a>
+                          </Link>
                           <button
                             className="btn btn-sm btn-outline-danger"
                             onClick={() =>
