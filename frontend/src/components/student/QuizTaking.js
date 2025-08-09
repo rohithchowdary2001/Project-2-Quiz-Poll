@@ -11,8 +11,8 @@ const QuizTaking = () => {
     const [quiz, setQuiz] = useState(null);
     const [submission, setSubmission] = useState(null);
     const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
-    const [answers, setAnswers] = useState({});
-    const [questionTimeLeft, setQuestionTimeLeft] = useState(0); // per-question timer only
+    const [answers, setAnswers] = useState({}); // Store answers locally only
+    const [questionTimeLeft, setQuestionTimeLeft] = useState(0);
     const questionTimerRef = useRef();
     const [loading, setLoading] = useState(true);
     const [submitting, setSubmitting] = useState(false);
@@ -47,9 +47,11 @@ const QuizTaking = () => {
             startQuiz();
         }
         
-        // Add socket connection logging
+        // Socket setup for real-time communication
         socket.on('connect', () => {
             console.log('Socket connected in QuizTaking:', socket.id);
+            // Join quiz room for real-time updates
+            socket.emit('join_quiz_room', quizId);
         });
         
         socket.on('disconnect', () => {
@@ -184,8 +186,8 @@ const QuizTaking = () => {
         }, 100);
     }, []); // Empty dependency array since we're using refs
 
-    const handleAnswerSelect = async (questionId, optionId) => {
-        // Update local state
+    const handleAnswerSelect = (questionId, optionId) => {
+        // Update local state only - no DB call
         const newAnswers = {
             ...answers,
             [questionId]: optionId
@@ -193,27 +195,24 @@ const QuizTaking = () => {
         
         setAnswers(newAnswers);
         
-        console.log('Answer selected for question:', questionId, 'option:', optionId, 'type:', typeof optionId);
-        console.log('Updated answers state:', newAnswers);
+        console.log('📝 Answer selected locally for question:', questionId, 'option:', optionId);
         
-        // Submit answer immediately to server (like timeout behavior)
-        if (submission) {
-            try {
-                console.log('🚀 Submitting answer immediately for question:', questionId, 'answer:', optionId);
-                
-                await api.post('/submissions/answer', {
-                    submissionId: submission.id,
-                    questionId: questionId,
-                    selectedOptionId: optionId
-                });
-                
-                console.log('✅ Answer submitted immediately for question:', questionId);
-            } catch (err) {
-                console.error('❌ Failed to submit answer immediately for question:', questionId, err.response?.data || err.message);
-                // Don't show error to user as this is background submission
-                // The answer is still stored locally and will be submitted during quiz completion if needed
-            }
-        }
+        // Find the selected option details for socket transmission
+        const currentQuestion = quiz.questions.find(q => q.id === questionId);
+        const selectedOption = currentQuestion?.options?.find(opt => opt.id === optionId);
+        
+        // Emit live answer update via socket (no DB storage)
+        socket.emit('live_answer_update', {
+            studentId: user.id,
+            studentName: user.full_name || user.email,
+            quizId: parseInt(quizId),
+            questionId: questionId,
+            selectedOptionId: optionId,
+            optionText: selectedOption?.option_text || 'Unknown option',
+            timestamp: Date.now()
+        });
+        
+        console.log('📡 Live answer update sent via socket');
     };
 
     const handleNextQuestion = async () => {
@@ -331,63 +330,27 @@ const QuizTaking = () => {
         setCurrentQuestionIndex(index);
     };
 
-    const handleCompleteQuiz = async (skipFinalAnswerSubmission = false) => {
+    const handleCompleteQuiz = async () => {
         try {
             setSubmitting(true);
             
-            // Since answers are now submitted immediately when selected,
-            // we only need to ensure any pending answers are submitted as a backup
-            if (!skipFinalAnswerSubmission && quiz && quiz.questions && submission) {
-                console.log('🔄 Checking for any pending answers to submit as backup...');
-                
-                // Only submit answers that might have failed during immediate submission
-                let pendingCount = 0;
-                for (const question of quiz.questions) {
-                    const answer = answers[question.id];
-                    if (answer != null && answer !== undefined) {
-                        pendingCount++;
-                        try {
-                            console.log('📤 Backup submission for question:', question.id, 'answer:', answer);
-                            
-                            await api.post('/submissions/answer', {
-                                submissionId: submission.id,
-                                questionId: question.id,
-                                selectedOptionId: answer
-                            });
-                            
-                            console.log('✅ Backup answer submitted for question:', question.id);
-                            
-                        } catch (err) {
-                            // This might fail if answer was already submitted, which is fine
-                            console.log('ℹ️ Backup submission for question', question.id, 'failed (probably already submitted):', err.response?.data?.message || err.message);
-                        }
-                    }
-                }
-                
-                console.log(`✅ Backup submission check complete. Found ${pendingCount} answers.`);
-                
-                // Small delay to ensure all submissions are processed
-                if (pendingCount > 0) {
-                    console.log('⏳ Waiting for backup submissions to complete...');
-                    await new Promise(resolve => setTimeout(resolve, 300));
-                }
-            }
-
-            console.log('🎯 Starting quiz completion process...');
-            const response = await api.post('/submissions/complete', {
-                submissionId: submission.id
+            console.log('🎯 Completing quiz with all answers at once...');
+            console.log('� Current answers:', answers);
+            
+            // Use the new complete-with-answers endpoint that saves all answers to DB at once
+            const response = await api.post('/submissions/complete-with-answers', {
+                quizId: parseInt(quizId),
+                answers: answers  // All answers collected locally
             });
             
-            console.log('✅ Quiz completed successfully!', response.data);
+            console.log('✅ Quiz completed successfully with all answers!', response.data);
             
-            // Small delay to ensure the socket event for quiz completion is processed
-            await new Promise(resolve => setTimeout(resolve, 200));
+            // Show success message
+            alert(`Quiz completed successfully! Your score: ${response.data.submission.score}%`);
             
-            console.log('🔄 Quiz completion socket event should have been sent. Navigating to results...');
+            // Navigate to student quizzes page
+            navigate('/student/quizzes');
             
-            // Navigate to results page
-            navigate(`/student/quiz-results/${submission.id}`);
-
         } catch (err) {
             console.error('❌ Failed to complete quiz:', err.response?.data || err.message);
             setError(err.response?.data?.message || 'Failed to complete quiz');

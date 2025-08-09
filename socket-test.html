@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Socket Test</title>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+</head>
+<body>
+    <h1>Socket Event Test</h1>
+    
+    <div>
+        <h3>Test Quiz Activation</h3>
+        <button onclick="testActivateQuiz()">Test Activate Quiz</button>
+        <button onclick="testDeactivateQuiz()">Test Deactivate Quiz</button>
+    </div>
+    
+    <div id="logs" style="margin-top: 20px; padding: 10px; border: 1px solid #ccc; height: 300px; overflow-y: scroll;">
+        <h4>Logs:</h4>
+    </div>
+
+    <script>
+        const socket = io("http://localhost:5000", {
+            transports: ["polling"],
+            withCredentials: true,
+            autoConnect: true,
+        });
+
+        function log(message) {
+            const logs = document.getElementById('logs');
+            logs.innerHTML += `<div>[${new Date().toLocaleTimeString()}] ${message}</div>`;
+            logs.scrollTop = logs.scrollHeight;
+        }
+
+        socket.on('connect', () => {
+            log('✅ Connected to server with ID: ' + socket.id);
+        });
+
+        socket.on('disconnect', () => {
+            log('❌ Disconnected from server');
+        });
+
+        socket.on('quiz_activated', (data) => {
+            log('🚀 Quiz activated: ' + JSON.stringify(data));
+        });
+
+        socket.on('quiz_deactivated', (data) => {
+            log('🛑 Quiz deactivated: ' + JSON.stringify(data));
+        });
+
+        function testActivateQuiz() {
+            log('📡 Sending activate_quiz event...');
+            socket.emit('activate_quiz', {
+                quizId: 1,
+                quizData: {
+                    id: 1,
+                    title: "Test Quiz",
+                    questions: [
+                        {
+                            id: 1,
+                            question_text: "Test question?",
+                            options: [
+                                { id: 1, text: "Option A", is_correct: true },
+                                { id: 2, text: "Option B", is_correct: false }
+                            ]
+                        }
+                    ]
+                },
+                professorId: 8
+            });
+        }
+
+        function testDeactivateQuiz() {
+            log('📡 Sending deactivate_quiz event...');
+            socket.emit('deactivate_quiz', {
+                quizId: 1,
+                professorId: 8
+            });
+        }
+    </script>
+</body>
+</html>

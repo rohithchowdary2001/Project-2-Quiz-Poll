@@ -64,6 +64,57 @@ class Server {
                 console.log(`📡 Socket ${socket.id} joined room quiz_${quizId}`);
             });
 
+            // Join professor room for receiving quiz management updates
+            socket.on('join_professor_room', (professorId) => {
+                socket.join(`professor_${professorId}`);
+                console.log(`📡 Socket ${socket.id} joined professor room professor_${professorId}`);
+            });
+
+            // Handle live answer updates (no DB storage)
+            socket.on('live_answer_update', (data) => {
+                console.log('📡 Live answer update received:', data);
+                // Broadcast to professor and other students in the quiz room
+                socket.to(`quiz_${data.quizId}`).emit('live_answer_update', {
+                    studentId: data.studentId,
+                    studentName: data.studentName,
+                    quizId: data.quizId,
+                    questionId: data.questionId,
+                    selectedOptionId: data.selectedOptionId,
+                    optionText: data.optionText,
+                    timestamp: data.timestamp
+                });
+            });
+
+            // Handle live quiz activation (no DB storage initially)
+            socket.on('live_quiz_activate', (data) => {
+                console.log('📡 Live quiz activation:', data);
+                // Broadcast to all students in the class
+                socket.to(`class_${data.classId}`).emit('quiz_activated_live', {
+                    quizId: data.quizId,
+                    quizTitle: data.quizTitle,
+                    professorName: data.professorName,
+                    timestamp: data.timestamp
+                });
+            });
+
+            // Handle live quiz deactivation (no DB storage initially)
+            socket.on('live_quiz_deactivate', (data) => {
+                console.log('📡 Live quiz deactivation:', data);
+                // Broadcast to all students in the class
+                socket.to(`class_${data.classId}`).emit('quiz_deactivated_live', {
+                    quizId: data.quizId,
+                    quizTitle: data.quizTitle,
+                    professorName: data.professorName,
+                    timestamp: data.timestamp
+                });
+            });
+
+            // Join class room for students to receive quiz activation updates
+            socket.on('join_class_room', (classId) => {
+                socket.join(`class_${classId}`);
+                console.log(`📡 Socket ${socket.id} joined class room class_${classId}`);
+            });
+
             socket.on('disconnect', () => {
                 console.log('📡 Socket disconnected:', socket.id);
             });

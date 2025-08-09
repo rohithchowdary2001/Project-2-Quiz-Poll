@@ -30,38 +30,60 @@ const AvailableQuizzes = () => {
         fetchAvailableQuizzes();
     }, [selectedClassId]);
 
-    // Listen for quiz status changes via socket
+    // Listen for live quiz activation/deactivation events
     useEffect(() => {
-        const handleQuizStatusChanged = (data) => {
-            console.log('📡 Quiz status changed received:', data);
+        const handleQuizActivatedLive = (data) => {
+            console.log('� Quiz activated live:', data);
             
             // Update the specific quiz in our local state
             setQuizzes(prev => {
                 const updated = prev.map(quiz => 
                     quiz.id === data.quizId 
-                        ? { ...quiz, is_live_active: data.isLiveActive }
+                        ? { ...quiz, is_live_active: true }
                         : quiz
                 );
-                console.log('📡 Quizzes updated:', updated);
                 return updated;
             });
             
             // Show notification to user
-            if (data.isLiveActive) {
-                console.log(`✅ Quiz "${data.quiz.title}" is now available for taking!`);
-            } else {
-                console.log(`❌ Quiz "${data.quiz.title}" is no longer available for taking.`);
-            }
+            alert(`🎉 "${data.quizTitle}" is now available for taking!`);
         };
 
-        console.log('📡 Setting up socket listener for quizStatusChanged');
-        socket.on('quizStatusChanged', handleQuizStatusChanged);
+        const handleQuizDeactivatedLive = (data) => {
+            console.log('🛑 Quiz deactivated live:', data);
+            
+            // Update the specific quiz in our local state
+            setQuizzes(prev => {
+                const updated = prev.map(quiz => 
+                    quiz.id === data.quizId 
+                        ? { ...quiz, is_live_active: false }
+                        : quiz
+                );
+                return updated;
+            });
+            
+            // Show notification to user
+            alert(`❌ "${data.quizTitle}" is no longer available for taking.`);
+        };
+
+        // Join class rooms for live updates
+        if (classes.length > 0) {
+            classes.forEach(classItem => {
+                socket.emit('join_class_room', classItem.id);
+                console.log(`📡 Joined class room: ${classItem.id}`);
+            });
+        }
+
+        console.log('📡 Setting up socket listeners for live quiz events');
+        socket.on('quiz_activated_live', handleQuizActivatedLive);
+        socket.on('quiz_deactivated_live', handleQuizDeactivatedLive);
 
         return () => {
-            console.log('📡 Cleaning up socket listener for quizStatusChanged');
-            socket.off('quizStatusChanged', handleQuizStatusChanged);
+            console.log('📡 Cleaning up socket listeners for live quiz events');
+            socket.off('quiz_activated_live', handleQuizActivatedLive);
+            socket.off('quiz_deactivated_live', handleQuizDeactivatedLive);
         };
-    }, []);
+    }, [classes]);
 
     const fetchAvailableQuizzes = async () => {
         try {

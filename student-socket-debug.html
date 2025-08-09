@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Student Socket Debug</title>
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+</head>
+<body>
+    <h1>Student Socket Debug Page</h1>
+    
+    <div>
+        <h3>Socket Connection Status</h3>
+        <div id="connection-status">Connecting...</div>
+    </div>
+    
+    <div>
+        <h3>Quiz Events</h3>
+        <button onclick="testListen()">Start Listening for Quiz Events</button>
+    </div>
+    
+    <div id="logs" style="margin-top: 20px; padding: 10px; border: 1px solid #ccc; height: 400px; overflow-y: scroll;">
+        <h4>Logs:</h4>
+    </div>
+
+    <script>
+        const socket = io("http://localhost:5000", {
+            transports: ["polling"],
+            withCredentials: true,
+            autoConnect: true,
+        });
+
+        function log(message) {
+            const logs = document.getElementById('logs');
+            logs.innerHTML += `<div>[${new Date().toLocaleTimeString()}] ${message}</div>`;
+            logs.scrollTop = logs.scrollHeight;
+        }
+
+        function updateConnectionStatus(status) {
+            document.getElementById('connection-status').innerHTML = status;
+        }
+
+        socket.on('connect', () => {
+            log('✅ STUDENT DEBUG: Connected to server with ID: ' + socket.id);
+            updateConnectionStatus('✅ Connected: ' + socket.id);
+        });
+
+        socket.on('disconnect', () => {
+            log('❌ STUDENT DEBUG: Disconnected from server');
+            updateConnectionStatus('❌ Disconnected');
+        });
+
+        socket.on('quiz_activated', (data) => {
+            log('🚀 STUDENT DEBUG: Quiz activated received: ' + JSON.stringify(data));
+        });
+
+        socket.on('quiz_deactivated', (data) => {
+            log('🛑 STUDENT DEBUG: Quiz deactivated received: ' + JSON.stringify(data));
+        });
+
+        function testListen() {
+            log('🔌 STUDENT DEBUG: Actively listening for quiz events...');
+            log('📡 STUDENT DEBUG: Socket connected: ' + socket.connected);
+            log('🆔 STUDENT DEBUG: Socket ID: ' + socket.id);
+        }
+    </script>
+</body>
+</html>

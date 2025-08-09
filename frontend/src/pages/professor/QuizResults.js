@@ -14,6 +14,11 @@ const QuizManagement = () => {
   const [selectedQuiz, setSelectedQuiz] = useState(null);
   const [targetClassId, setTargetClassId] = useState("");
   const [selectedClassId, setSelectedClassId] = useState("");
+  
+  // Live answer tracking (no database, socket-only)
+  const [liveAnswers, setLiveAnswers] = useState({}); // { studentId: { questionId: optionId } }
+  const [liveStudents, setLiveStudents] = useState({}); // { studentId: { name, lastActivity } }
+  
   const [quizForm, setQuizForm] = useState({
     title: "",
     description: "",
@@ -34,12 +39,51 @@ const QuizManagement = () => {
   });
 
   useEffect(() => {
+    // Setup socket connection for professor
+    socket.on('connect', () => {
+      console.log('📡 Professor socket connected for quiz management:', socket.id);
+      socket.emit('join_professor_room', user.id);
+    });
+
+    // Listen for live answer updates (no DB calls)
+    socket.on('live_answer_update', (data) => {
+      console.log('📝 Live answer update received:', data);
+      
+      // Update live answers state
+      setLiveAnswers(prev => ({
+        ...prev,
+        [data.studentId]: {
+          ...prev[data.studentId],
+          [data.questionId]: {
+            selectedOptionId: data.selectedOptionId,
+            optionText: data.optionText,
+            timestamp: data.timestamp
+          }
+        }
+      }));
+
+      // Update student activity
+      setLiveStudents(prev => ({
+        ...prev,
+        [data.studentId]: {
+          name: data.studentName,
+          lastActivity: data.timestamp
+        }
+      }));
+
+      console.log(`📊 Student ${data.studentName} selected "${data.optionText}" for question ${data.questionId}`);
+    });
+
+    // Keep the old listener for final quiz submissions (DB updates)
     socket.on("quizResultsUpdated", (data) => {
       if (quizzes.some((q) => String(q.id) === String(data.quizId))) {
+        console.log('📊 Quiz results updated in DB, refreshing...');
         fetchQuizzes();
       }
     });
+    
     return () => {
+      socket.off('live_answer_update');
       socket.off("quizResultsUpdated");
     };
   }, [quizzes]);

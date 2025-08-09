@@ -914,6 +914,107 @@ class QuizController {
     }
   }
 
+  // Live toggle quiz activation (socket-only, no DB update initially)
+  static async liveToggleQuizActive(req, res, next) {
+    try {
+      const quizId = parseInt(req.params.id);
+      const { isLiveActive } = req.body;
+
+      console.log(`📡 Live toggle request for quiz ${quizId}, status: ${isLiveActive}`);
+
+      // Validate quiz ID
+      if (isNaN(quizId)) {
+        throw ErrorHandler.validationError("Invalid quiz ID");
+      }
+
+      // Get quiz information without updating DB
+      const quiz = await database.query(`
+        SELECT q.*, c.name as class_name, c.class_code, c.id as class_id
+        FROM quizzes q 
+        JOIN classes c ON q.class_id = c.id 
+        WHERE q.id = ? AND q.professor_id = ?
+      `, [quizId, req.user.id]);
+
+      if (quiz.length === 0) {
+        throw ErrorHandler.notFoundError("Quiz not found or you do not have permission");
+      }
+
+      const quizData = quiz[0];
+
+      // Just return success without DB update - socket will handle live communication
+      res.json({
+        message: `Quiz ${isLiveActive ? 'activated' : 'deactivated'} live (no DB update)`,
+        quiz: {
+          id: quizData.id,
+          title: quizData.title,
+          is_live_active: isLiveActive,
+          class_name: quizData.class_name,
+          class_id: quizData.class_id
+        }
+      });
+
+    } catch (error) {
+      console.error('Live Toggle Quiz Error:', error);
+      next(error);
+    }
+  }
+
+  // Confirm quiz activation/deactivation (actual DB update)
+  static async confirmQuizToggle(req, res, next) {
+    try {
+      const quizId = parseInt(req.params.id);
+      const { isLiveActive } = req.body;
+
+      console.log(`💾 Confirming DB update for quiz ${quizId}, status: ${isLiveActive}`);
+
+      // Validate quiz ID
+      if (isNaN(quizId)) {
+        throw ErrorHandler.validationError("Invalid quiz ID");
+      }
+
+      // Validate that professor owns the quiz
+      const quiz = await database.findOne("quizzes", {
+        id: quizId,
+        professor_id: req.user.id
+      });
+
+      if (!quiz) {
+        throw ErrorHandler.notFoundError("Quiz not found or you do not have permission");
+      }
+
+      // NOW update the database
+      const updateData = {
+        is_live_active: isLiveActive,
+        updated_at: new Date()
+      };
+
+      await database.update("quizzes", { id: quizId }, updateData);
+
+      // Log the action
+      await AuditLogger.logUserAction(
+        req.user.id,
+        isLiveActive ? "QUIZ_ACTIVATE_CONFIRMED" : "QUIZ_DEACTIVATE_CONFIRMED",
+        "quizzes",
+        quizId,
+        { is_live_active: quiz.is_live_active },
+        { is_live_active: isLiveActive },
+        req
+      );
+
+      res.json({
+        message: `Quiz ${isLiveActive ? 'activation' : 'deactivation'} confirmed in database`,
+        quiz: {
+          id: quizId,
+          is_live_active: isLiveActive
+        }
+      });
+
+    } catch (error) {
+      console.error('Confirm Quiz Toggle Error:', error);
+      next(error);
+    }
+  }
+
   // Copy quiz to another class
   static async copyQuiz(req, res, next) {
     try {
@@ -1120,12 +1221,28 @@ router.get(
   ErrorHandler.asyncHandler(QuizController.getQuizResults)
 );
 
-// Toggle quiz live activation status
+// Toggle quiz live activation status (with DB update)
 router.patch(
   "/:id/toggle-live-active",
   AuthMiddleware.verifyToken,
   AuthMiddleware.requireProfessor,
   ErrorHandler.asyncHandler(QuizController.toggleQuizLiveActive)
+);
+
+// Live toggle quiz activation (socket-only, no DB update)
+router.patch(
+  "/:id/live-toggle",
+  AuthMiddleware.verifyToken,
+  AuthMiddleware.requireProfessor,
+  ErrorHandler.asyncHandler(QuizController.liveToggleQuizActive)
+);
+
+// Confirm quiz activation/deactivation (actual DB update)
+router.patch(
+  "/:id/confirm-toggle",
+  AuthMiddleware.verifyToken,
+  AuthMiddleware.requireProfessor,
+  ErrorHandler.asyncHandler(QuizController.confirmQuizToggle)
 );
 
 // Copy quiz to another class

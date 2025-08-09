@@ -42,11 +42,18 @@ const QuizManagement = () => {
   });
 
   useEffect(() => {
+    // Setup socket connection for professor
+    socket.on('connect', () => {
+      console.log('📡 Professor socket connected:', socket.id);
+      socket.emit('join_professor_room', user.id);
+    });
+
     socket.on("quizResultsUpdated", (data) => {
       if (quizzes.some((q) => String(q.id) === String(data.quizId))) {
         fetchQuizzes();
       }
     });
+    
     return () => {
       socket.off("quizResultsUpdated");
     };
@@ -166,22 +173,54 @@ const QuizManagement = () => {
   const handleToggleQuizLiveActive = async (quizId, currentStatus) => {
     try {
       const newStatus = !currentStatus;
-      console.log(`🔄 Toggling quiz ${quizId} from ${currentStatus} to ${newStatus}`);
+      console.log(`🔄 Live toggling quiz ${quizId} from ${currentStatus} to ${newStatus}`);
       
-      const response = await api.patch(`/quizzes/${quizId}/toggle-live-active`, {
+      // Get quiz details for socket broadcast
+      const quiz = quizzes.find(q => q.id === quizId);
+      if (!quiz) {
+        setError('Quiz not found');
+        return;
+      }
+
+      // Step 1: Live toggle via socket (no DB update yet)
+      const response = await api.patch(`/quizzes/${quizId}/live-toggle`, {
         isLiveActive: newStatus
       });
       
-      console.log(`📡 Toggle response:`, response.data);
+      console.log(`📡 Live toggle response:`, response.data);
       
       // Update the quiz in local state immediately for better UX
-      setQuizzes(prev => prev.map(quiz => 
-        quiz.id === quizId 
-          ? { ...quiz, is_live_active: newStatus }
-          : quiz
+      setQuizzes(prev => prev.map(q => 
+        q.id === quizId 
+          ? { ...q, is_live_active: newStatus }
+          : q
       ));
-      
-      console.log(`✅ Quiz ${quizId} ${newStatus ? 'activated' : 'deactivated'} successfully`);
+
+      // Step 2: Broadcast live via socket to students
+      const eventType = newStatus ? 'live_quiz_activate' : 'live_quiz_deactivate';
+      socket.emit(eventType, {
+        quizId: quizId,
+        quizTitle: quiz.title,
+        classId: quiz.class_id,
+        professorName: user.full_name || user.email,
+        timestamp: Date.now()
+      });
+
+      console.log(`📡 Live ${newStatus ? 'activation' : 'deactivation'} broadcasted via socket`);
+
+      // Step 3: Confirm in database after a short delay (optional - could be done when professor confirms)
+      setTimeout(async () => {
+        try {
+          await api.patch(`/quizzes/${quizId}/confirm-toggle`, {
+            isLiveActive: newStatus
+          });
+          console.log(`💾 Quiz ${quizId} status confirmed in database`);
+        } catch (err) {
+          console.error('⚠️ Failed to confirm quiz status in database:', err);
+        }
+      }, 1000);
+
+      console.log(`✅ Quiz ${quizId} ${newStatus ? 'activated' : 'deactivated'} live successfully`);
     } catch (err) {
       console.error('❌ Failed to toggle quiz status:', err);
       setError(err.response?.data?.message || 'Failed to update quiz status');

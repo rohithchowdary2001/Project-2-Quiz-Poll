@@ -363,6 +363,182 @@ if (global.io) {
     }
   }
 
+  // Complete quiz with all answers at once (new method for live answers)
+  static async completeQuizWithAnswers(req, res, next) {
+    try {
+      const { quizId, answers } = req.body;
+
+      console.log('📝 Complete quiz with all answers:', { quizId, answerCount: Object.keys(answers || {}).length });
+
+      // Validate required fields
+      ErrorHandler.validateRequired(["quizId", "answers"], req.body);
+
+      if (!answers || typeof answers !== 'object') {
+        throw ErrorHandler.validationError("Answers must be an object with questionId: optionId pairs");
+      }
+
+      // Get quiz details
+      const quiz = await database.query(`
+        SELECT q.*, c.name as class_name
+        FROM quizzes q
+        JOIN classes c ON q.class_id = c.id
+        WHERE q.id = ? AND q.is_active = true
+      `, [quizId]);
+
+      if (quiz.length === 0) {
+        throw ErrorHandler.notFoundError("Quiz not found");
+      }
+
+      const quizInfo = quiz[0];
+
+      // Check if student is enrolled
+      const enrollment = await database.findOne("class_enrollments", {
+        class_id: quizInfo.class_id,
+        student_id: req.user.id,
+        is_active: true,
+      });
+
+      if (!enrollment) {
+        throw ErrorHandler.forbiddenError("You are not enrolled in the class for this quiz");
+      }
+
+      // Check if student has already submitted this quiz
+      const existingSubmission = await database.findOne("quiz_submissions", {
+        quiz_id: quizId,
+        student_id: req.user.id,
+      });
+
+      let submissionId;
+
+      if (existingSubmission) {
+        if (existingSubmission.is_completed) {
+          throw ErrorHandler.conflictError("You have already completed this quiz");
+        }
+        submissionId = existingSubmission.id;
+      } else {
+        // Create new submission
+        const result = await database.insert("quiz_submissions", {
+          quiz_id: quizId,
+          student_id: req.user.id,
+          ip_address: req.ip,
+        });
+        submissionId = result.insertId;
+      }
+
+      // Get all questions for validation
+      const questions = await database.query(`
+        SELECT q.id, ao.id as option_id, ao.is_correct
+        FROM questions q
+        LEFT JOIN answer_options ao ON ao.question_id = q.id
+        WHERE q.quiz_id = ?
+        ORDER BY q.id, ao.id
+      `, [quizId]);
+
+      const questionMap = {};
+      questions.forEach(q => {
+        if (!questionMap[q.id]) {
+          questionMap[q.id] = [];
+        }
+        if (q.option_id) {
+          questionMap[q.id].push({
+            id: q.option_id,
+            is_correct: q.is_correct
+          });
+        }
+      });
+
+      let correctAnswers = 0;
+      let totalAnswers = 0;
+
+      // Insert all answers at once
+      const answerInserts = [];
+      const currentTime = new Date();
+
+      for (const [questionIdStr, selectedOptionId] of Object.entries(answers)) {
+        const questionId = parseInt(questionIdStr);
+        
+        if (!questionMap[questionId]) {
+          console.warn(`⚠️ Question ${questionId} not found in quiz ${quizId}`);
+          continue;
+        }
+
+        const selectedOption = questionMap[questionId].find(opt => opt.id === selectedOptionId);
+        if (!selectedOption) {
+          console.warn(`⚠️ Option ${selectedOptionId} not found for question ${questionId}`);
+          continue;
+        }
+
+        const isCorrect = selectedOption.is_correct;
+        if (isCorrect) correctAnswers++;
+        totalAnswers++;
+
+        answerInserts.push({
+          submission_id: submissionId,
+          question_id: questionId,
+          selected_option_id: selectedOptionId,
+          is_correct: isCorrect,
+          answered_at: currentTime,
+        });
+      }
+
+      // Bulk insert all answers
+      if (answerInserts.length > 0) {
+        for (const answer of answerInserts) {
+          await database.insert("student_answers", answer);
+        }
+        console.log(`✅ Inserted ${answerInserts.length} answers for submission ${submissionId}`);
+      }
+
+      // Calculate score
+      const totalQuestions = Object.keys(questionMap).length;
+      const score = totalQuestions > 0 ? Math.round((correctAnswers / totalQuestions) * 100) : 0;
+
+      // Mark submission as completed
+      await database.update(
+        "quiz_submissions",
+        { id: submissionId },
+        {
+          is_completed: true,
+          completed_at: currentTime,
+          score: score,
+        }
+      );
+
+      // Log quiz completion
+      await AuditLogger.logQuizActivity(
+        req.user.id,
+        "COMPLETE",
+        quizId,
+        submissionId,
+        { 
+          quiz_title: quizInfo.title,
+          score: score,
+          correct_answers: correctAnswers,
+          total_questions: totalQuestions
+        },
+        req
+      );
+
+      console.log(`🎉 Quiz ${quizId} completed by student ${req.user.id} with score ${score}%`);
+
+      res.json({
+        message: "Quiz completed successfully",
+        submission: {
+          id: submissionId,
+          quizId: quizId,
+          score: score,
+          correctAnswers: correctAnswers,
+          totalQuestions: totalQuestions,
+          completedAt: currentTime,
+        },
+      });
+
+    } catch (error) {
+      console.error('Complete Quiz With Answers Error:', error);
+      next(error);
+    }
+  }
+
   // Get submission results
   static async getSubmissionResults(req, res, next) {
     try {
@@ -657,6 +833,14 @@ router.post(
   AuthMiddleware.verifyToken,
   AuthMiddleware.requireStudent,
   ErrorHandler.asyncHandler(SubmissionController.completeQuiz)
+);
+
+// New route for completing quiz with all answers at once
+router.post(
+  "/complete-with-answers",
+  AuthMiddleware.verifyToken,
+  AuthMiddleware.requireStudent,
+  ErrorHandler.asyncHandler(SubmissionController.completeQuizWithAnswers)
 );
 router.get(
   "/my-submissions",
