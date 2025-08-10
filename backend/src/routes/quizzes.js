@@ -20,7 +20,8 @@ class QuizController {
         SELECT q.*, c.name as class_name, c.class_code,
                u.first_name as professor_first_name, u.last_name as professor_last_name,
                (SELECT COUNT(*) FROM questions WHERE quiz_id = q.id) as question_count,
-               (SELECT COUNT(*) FROM quiz_submissions WHERE quiz_id = q.id AND is_completed = true) as submission_count
+               (SELECT COUNT(*) FROM quiz_submissions WHERE quiz_id = q.id AND is_completed = true) as submission_count,
+               q.is_live_active
         FROM quizzes q
         JOIN classes c ON q.class_id = c.id
         JOIN users u ON q.professor_id = u.id
@@ -962,10 +963,16 @@ class QuizController {
   // Confirm quiz activation/deactivation (actual DB update)
   static async confirmQuizToggle(req, res, next) {
     try {
+      console.log('🚀 confirmQuizToggle method STARTED');
+      console.log('🔍 Request params:', req.params);
+      console.log('🔍 Request body:', req.body);
+      console.log('🔍 Request user:', req.user);
+
       const quizId = parseInt(req.params.id);
       const { isLiveActive } = req.body;
 
       console.log(`💾 Confirming DB update for quiz ${quizId}, status: ${isLiveActive}`);
+      console.log(`🔧 User ID: ${req.user.id}, User Role: ${req.user.role}`);
 
       // Validate quiz ID
       if (isNaN(quizId)) {
@@ -973,10 +980,13 @@ class QuizController {
       }
 
       // Validate that professor owns the quiz
+      console.log(`🔧 Looking for quiz with id: ${quizId}, professor_id: ${req.user.id}`);
       const quiz = await database.findOne("quizzes", {
         id: quizId,
         professor_id: req.user.id
       });
+
+      console.log(`🔧 Found quiz:`, quiz);
 
       if (!quiz) {
         throw ErrorHandler.notFoundError("Quiz not found or you do not have permission");
@@ -984,11 +994,18 @@ class QuizController {
 
       // NOW update the database
       const updateData = {
-        is_live_active: isLiveActive,
+        is_live_active: isLiveActive ? 1 : 0,  // Convert boolean to 1/0 for MySQL
         updated_at: new Date()
       };
+      
+      const updateConditions = { id: quizId };
 
-      await database.update("quizzes", { id: quizId }, updateData);
+      console.log(`🔧 Updating quiz ${quizId} with data:`, updateData);
+      console.log(`🔧 Update conditions:`, updateConditions);
+      console.log(`🔧 About to execute UPDATE quizzes SET is_live_active = ${updateData.is_live_active} WHERE id = ${quizId}`);
+      
+      const updateResult = await database.update("quizzes", updateData, updateConditions);
+      console.log(`🔧 Update result:`, updateResult);
 
       // Log the action
       await AuditLogger.logUserAction(

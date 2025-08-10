@@ -77,6 +77,7 @@ const QuizManagement = () => {
         ? `?classId=${selectedClassId}&sortBy=created_at&sortOrder=DESC`
         : "?sortBy=created_at&sortOrder=DESC";
       const response = await api.get(`/quizzes${params}`);
+      console.log('📊 Fetched quizzes data sample:', response.data.quizzes?.slice(0, 2)); // Log first 2 quizzes
       setQuizzes(response.data.quizzes || []);
       setError("");
     } catch (err) {
@@ -172,8 +173,14 @@ const QuizManagement = () => {
 
   const handleToggleQuizLiveActive = async (quizId, currentStatus) => {
     try {
-      const newStatus = !currentStatus;
-      console.log(`🔄 Live toggling quiz ${quizId} from ${currentStatus} to ${newStatus}`);
+      // Calculate new status - handle both boolean and numeric values
+      const isCurrentlyActive = Boolean(currentStatus);
+      const newStatus = !isCurrentlyActive;
+      
+      console.log(`🔄 Live toggling quiz ${quizId}`);
+      console.log(`📊 Frontend current status: ${currentStatus}`);
+      console.log(`� Database current status: ${isCurrentlyActive}`);
+      console.log(`📊 New status will be: ${newStatus}`);
       
       // Get quiz details for socket broadcast
       const quiz = quizzes.find(q => q.id === quizId);
@@ -208,19 +215,27 @@ const QuizManagement = () => {
 
       console.log(`📡 Live ${newStatus ? 'activation' : 'deactivation'} broadcasted via socket`);
 
-      // Step 3: Confirm in database after a short delay (optional - could be done when professor confirms)
+      // Step 3: Confirm in database after a short delay
       setTimeout(async () => {
         try {
           await api.patch(`/quizzes/${quizId}/confirm-toggle`, {
             isLiveActive: newStatus
           });
           console.log(`💾 Quiz ${quizId} status confirmed in database`);
+          
+          // Wait a bit more for database to be fully updated
+          setTimeout(async () => {
+            console.log('🔄 Refreshing quiz list to sync with database...');
+            await fetchQuizzes();
+          }, 500);
+          
         } catch (err) {
           console.error('⚠️ Failed to confirm quiz status in database:', err);
         }
       }, 1000);
 
       console.log(`✅ Quiz ${quizId} ${newStatus ? 'activated' : 'deactivated'} live successfully`);
+      
     } catch (err) {
       console.error('❌ Failed to toggle quiz status:', err);
       setError(err.response?.data?.message || 'Failed to update quiz status');
@@ -487,19 +502,19 @@ const QuizManagement = () => {
                           {getStatusBadge(quiz)}
                           <button
                             className={`btn btn-sm ms-2 ${
-                              quiz.is_live_active 
+                              Boolean(quiz.is_live_active) 
                                 ? 'btn-outline-warning' 
                                 : 'btn-outline-success'
                             }`}
                             onClick={() => handleToggleQuizLiveActive(quiz.id, quiz.is_live_active)}
-                            title={`Click to ${quiz.is_live_active ? 'pause' : 'activate'} quiz for students`}
+                            title={`Click to ${Boolean(quiz.is_live_active) ? 'pause' : 'activate'} quiz for students`}
                           >
                             <i className={`fas ${
-                              quiz.is_live_active 
+                              Boolean(quiz.is_live_active) 
                                 ? 'fa-pause' 
                                 : 'fa-play'
                             } me-1`}></i>
-                            {quiz.is_live_active ? 'Pause' : 'Activate'}
+                            {Boolean(quiz.is_live_active) ? 'Pause' : 'Activate'}
                           </button>
                         </div>
                       </td>

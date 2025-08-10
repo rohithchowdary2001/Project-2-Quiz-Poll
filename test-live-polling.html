@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🔥 Socket-Only Live Polling Test</title>
+    <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin: 20px 0;
+        }
+        .student-section {
+            border-left: 4px solid #28a745;
+        }
+        .professor-section {
+            border-left: 4px solid #007bff;
+        }
+        .answer-option {
+            background: #f8f9fa;
+            border: 2px solid #dee2e6;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .answer-option:hover {
+            background: #e9ecef;
+            border-color: #28a745;
+        }
+        .answer-option.selected {
+            background: #d4edda;
+            border-color: #28a745;
+            font-weight: bold;
+        }
+        .live-stats {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+        }
+        .progress-bar {
+            background: #e9ecef;
+            border-radius: 10px;
+            height: 20px;
+            margin: 5px 0;
+            overflow: hidden;
+        }
+        .progress-fill {
+            background: #28a745;
+            height: 100%;
+            border-radius: 10px;
+            transition: width 0.6s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+        }
+        .log {
+            background: #343a40;
+            color: #ffffff;
+            padding: 10px;
+            border-radius: 5px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+            margin: 10px 0;
+        }
+        .status {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-weight: bold;
+            margin: 0 5px;
+        }
+        .status.connected { background: #d4edda; color: #155724; }
+        .status.disconnected { background: #f8d7da; color: #721c24; }
+        .question {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+        }
+        h1, h2 { color: #333; }
+        .emoji { font-size: 1.2em; }
+    </style>
+</head>
+<body>
+    <h1>🔥 Socket-Only Live Polling System Test</h1>
+    <p><strong>Testing the complete flow:</strong> Student selects answer → Socket emission only → Backend relay → Professor receives live updates → Database only on final submission</p>
+
+    <!-- Student Section -->
+    <div class="container student-section">
+        <h2>📝 Student View (Quiz Taking)</h2>
+        <div>
+            Status: <span class="status disconnected" id="studentStatus">Disconnected</span>
+            <span id="studentId"></span>
+        </div>
+        
+        <div class="question">
+            <h3>Question 1: What is the best approach for live quiz polling?</h3>
+            <div class="answer-option" onclick="selectAnswer(1, 'Database-heavy approach')">
+                A) Database-heavy approach (traditional)
+            </div>
+            <div class="answer-option" onclick="selectAnswer(2, 'Socket-only live polling')">
+                B) Socket-only live polling (real-time) ⚡
+            </div>
+            <div class="answer-option" onclick="selectAnswer(3, 'Hybrid approach')">
+                C) Hybrid approach
+            </div>
+            <div class="answer-option" onclick="selectAnswer(4, 'No real-time updates')">
+                D) No real-time updates
+            </div>
+        </div>
+
+        <div class="log" id="studentLog">Student activity will appear here...</div>
+    </div>
+
+    <!-- Professor Section -->
+    <div class="container professor-section">
+        <h2>👩‍🏫 Professor View (Live Results)</h2>
+        <div>
+            Status: <span class="status disconnected" id="professorStatus">Disconnected</span>
+            <span id="professorId"></span>
+        </div>
+
+        <div class="live-stats">
+            <h3>🔥 Live Poll Results (Real-Time Socket Data)</h3>
+            <p>Updates instantly as students select answers - No database calls!</p>
+            
+            <div id="liveResults">
+                <div>A) Database-heavy approach: <span id="option1Count">0</span> votes (<span id="option1Percent">0%</span>)</div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="option1Progress" style="width: 0%;">0%</div>
+                </div>
+
+                <div>B) Socket-only live polling ⚡: <span id="option2Count">0</span> votes (<span id="option2Percent">0%</span>)</div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="option2Progress" style="width: 0%;">0%</div>
+                </div>
+
+                <div>C) Hybrid approach: <span id="option3Count">0</span> votes (<span id="option3Percent">0%</span>)</div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="option3Progress" style="width: 0%;">0%</div>
+                </div>
+
+                <div>D) No real-time updates: <span id="option4Count">0</span> votes (<span id="option4Percent">0%</span>)</div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="option4Progress" style="width: 0%;">0%</div>
+                </div>
+            </div>
+            
+            <div>Total live responses: <span id="totalResponses">0</span></div>
+        </div>
+
+        <div class="log" id="professorLog">Professor activity will appear here...</div>
+    </div>
+
+    <script>
+        // Socket connections
+        const studentSocket = io('http://localhost:5000');
+        const professorSocket = io('http://localhost:5000');
+        
+        // Test data
+        const QUIZ_ID = 1;
+        const STUDENT_ID = 'test_student_' + Math.random().toString(36).substr(2, 9);
+        const PROFESSOR_ID = 'test_prof_' + Math.random().toString(36).substr(2, 9);
+        
+        // Vote tracking
+        let voteCounts = { 1: 0, 2: 0, 3: 0, 4: 0 };
+        let totalVotes = 0;
+
+        // Student socket setup
+        studentSocket.on('connect', () => {
+            logToStudent('✅ Student socket connected: ' + studentSocket.id);
+            document.getElementById('studentStatus').className = 'status connected';
+            document.getElementById('studentStatus').textContent = 'Connected';
+            document.getElementById('studentId').textContent = '(ID: ' + studentSocket.id + ')';
+            
+            // Join quiz room
+            studentSocket.emit('join_quiz_room', QUIZ_ID);
+            logToStudent('📝 Joined quiz room: quiz_' + QUIZ_ID);
+        });
+
+        studentSocket.on('disconnect', () => {
+            logToStudent('❌ Student socket disconnected');
+            document.getElementById('studentStatus').className = 'status disconnected';
+            document.getElementById('studentStatus').textContent = 'Disconnected';
+        });
+
+        // Professor socket setup
+        professorSocket.on('connect', () => {
+            logToProfessor('✅ Professor socket connected: ' + professorSocket.id);
+            document.getElementById('professorStatus').className = 'status connected';
+            document.getElementById('professorStatus').textContent = 'Connected';
+            document.getElementById('professorId').textContent = '(ID: ' + professorSocket.id + ')';
+            
+            // Join professor and quiz rooms
+            professorSocket.emit('join_professor_room', PROFESSOR_ID);
+            professorSocket.emit('join_quiz_room', QUIZ_ID);
+            logToProfessor('👩‍🏫 Joined professor and quiz rooms');
+        });
+
+        professorSocket.on('disconnect', () => {
+            logToProfessor('❌ Professor socket disconnected');
+            document.getElementById('professorStatus').className = 'status disconnected';
+            document.getElementById('professorStatus').textContent = 'Disconnected';
+        });
+
+        // Receive live answer updates
+        professorSocket.on('live_answer_update', (data) => {
+            logToProfessor('🎯 LIVE ANSWER RECEIVED: ' + JSON.stringify(data));
+            
+            // Update vote counts
+            const optionId = data.selectedOptionId;
+            voteCounts[optionId]++;
+            totalVotes++;
+            
+            // Update display
+            updateLiveResults();
+            
+            logToProfessor(`📊 Student "${data.studentName}" selected "${data.optionText}"`);
+        });
+
+        // Select answer function
+        function selectAnswer(optionId, optionText) {
+            // Clear previous selections
+            document.querySelectorAll('.answer-option').forEach(el => {
+                el.classList.remove('selected');
+            });
+            
+            // Mark selected
+            event.target.classList.add('selected');
+            
+            logToStudent('📝 Answer selected locally: ' + optionText);
+            
+            // Emit via socket only (NO DATABASE!)
+            const answerData = {
+                studentId: STUDENT_ID,
+                studentName: 'Test Student',
+                quizId: QUIZ_ID,
+                questionId: 1,
+                selectedOptionId: optionId,
+                optionText: optionText,
+                timestamp: Date.now()
+            };
+            
+            studentSocket.emit('live_answer_update', answerData);
+            logToStudent('📡 Answer sent via socket - NO DATABASE CALL!');
+        }
+
+        // Update live results display
+        function updateLiveResults() {
+            for (let i = 1; i <= 4; i++) {
+                const count = voteCounts[i];
+                const percentage = totalVotes > 0 ? Math.round((count / totalVotes) * 100) : 0;
+                
+                document.getElementById(`option${i}Count`).textContent = count;
+                document.getElementById(`option${i}Percent`).textContent = percentage + '%';
+                document.getElementById(`option${i}Progress`).style.width = percentage + '%';
+                document.getElementById(`option${i}Progress`).textContent = percentage + '%';
+            }
+            
+            document.getElementById('totalResponses').textContent = totalVotes;
+        }
+
+        // Logging functions
+        function logToStudent(message) {
+            const log = document.getElementById('studentLog');
+            const timestamp = new Date().toLocaleTimeString();
+            log.innerHTML += `[${timestamp}] ${message}\n`;
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function logToProfessor(message) {
+            const log = document.getElementById('professorLog');
+            const timestamp = new Date().toLocaleTimeString();
+            log.innerHTML += `[${timestamp}] ${message}\n`;
+            log.scrollTop = log.scrollHeight;
+        }
+
+        // Initial log messages
+        logToStudent('🔄 Connecting to server...');
+        logToProfessor('🔄 Connecting to server...');
+    </script>
+</body>
+</html>

@@ -129,7 +129,6 @@ const QuizTaking = () => {
         // Use refs to get current state (avoiding stale closure)
         const currentQuestionIdx = currentQuestionIndexRef.current;
         const currentAnswers = answersRef.current;
-        const currentSubmission = submissionRef.current;
         const currentQuiz = quizRef.current;
         
         if (!currentQuiz || !currentQuiz.questions || !currentQuiz.questions[currentQuestionIdx]) {
@@ -144,47 +143,42 @@ const QuizTaking = () => {
         console.log('Current answers state:', currentAnswers);
         console.log('Current question index:', currentQuestionIdx);
 
-        // Submit current answer if it exists (check for valid option ID)
-        if (currentSubmission && answer != null && answer !== undefined) {
-            try {
-                console.log('Auto-submitting answer on time expiry for question:', currentQuestion.id, 'answer:', answer);
-                
-                const response = await api.post('/submissions/answer', {
-                    submissionId: currentSubmission.id,
-                    questionId: currentQuestion.id,
-                    selectedOptionId: answer
-                });
-                
-                console.log('✅ Auto-submitted answer successfully for question:', currentQuestion.id, 'Response:', response.data);
-            } catch (err) {
-                console.error('❌ Failed to auto-submit answer:', err.response?.data || err.message);
-            }
+        // Send final answer via socket if exists (NO DB CALL - SOCKET ONLY!)
+        if (answer != null && answer !== undefined) {
+            console.log('Sending final answer via socket on time expiry for question:', currentQuestion.id, 'answer:', answer);
+            
+            // Find the selected option details for socket transmission
+            const selectedOption = currentQuestion?.options?.find(opt => opt.id === answer);
+            
+            // Emit live answer update via socket (no DB storage)
+            socket.emit('live_answer_update', {
+                studentId: user.id,
+                studentName: user.full_name || user.email,
+                quizId: parseInt(quizId),
+                questionId: currentQuestion.id,
+                selectedOptionId: answer,
+                optionText: selectedOption?.option_text || 'Unknown option',
+                timestamp: Date.now(),
+                isTimeExpired: true
+            });
+            
+            console.log('📡 Final answer sent via socket on timer expiry - NO DATABASE CALL!');
         } else {
-            console.log('⚠️ No answer to auto-submit for question:', currentQuestion.id, 'Answer value:', answer, 'Type:', typeof answer);
+            console.log('⚠️ No answer to send for question:', currentQuestion.id, 'Answer value:', answer, 'Type:', typeof answer);
         }
 
-        // Small delay to ensure submission is processed
-        setTimeout(async () => {
+        // Small delay to ensure socket transmission
+        setTimeout(() => {
             // Check if this was the last question
             if (currentQuestionIdx >= currentQuiz.questions.length - 1) {
-                console.log('⏰ Timer expired on last question - completing quiz automatically');
-                // Auto-complete the quiz since we're on the last question
-                try {
-                    const response = await api.post('/submissions/complete', {
-                        submissionId: currentSubmission.id
-                    });
-                    console.log('✅ Quiz auto-completed successfully after timer expiry!', response.data);
-                    navigate(`/student/quiz-results/${currentSubmission.id}`);
-                } catch (err) {
-                    console.error('❌ Failed to auto-complete quiz:', err.response?.data || err.message);
-                    setError(err.response?.data?.message || 'Failed to complete quiz automatically');
-                }
+                console.log('⏰ Timer expired on last question - showing final submission dialog');
+                setShowConfirmSubmit(true);
             } else {
                 console.log('⏰ Timer expired - moving to next question');
                 setCurrentQuestionIndex(currentQuestionIdx + 1);
             }
         }, 100);
-    }, []); // Empty dependency array since we're using refs
+    }, [user, quizId]); // Dependencies for useCallback
 
     const handleAnswerSelect = (questionId, optionId) => {
         // Update local state only - no DB call
@@ -215,7 +209,7 @@ const QuizTaking = () => {
         console.log('📡 Live answer update sent via socket');
     };
 
-    const handleNextQuestion = async () => {
+    const handleNextQuestion = () => {
         // Safety check
         if (!quiz || !quiz.questions || currentQuestionIndex >= quiz.questions.length) {
             console.error('Cannot proceed to next question: invalid quiz state');
@@ -234,25 +228,27 @@ const QuizTaking = () => {
 
         console.log('Next button clicked. Current question:', currentQuestion.id, 'Answer:', answer, 'Type:', typeof answer);
 
-        // Submit the answer when moving to next question
-        if (submission && answer != null && answer !== undefined) {
-            try {
-                console.log('Submitting answer when moving to next question:', currentQuestion.id, 'answer:', answer);
-                
-                await api.post('/submissions/answer', {
-                    submissionId: submission.id,
-                    questionId: currentQuestion.id,
-                    selectedOptionId: answer
-                });
+        // Send answer via socket only - NO DATABASE CALL!
+        if (answer != null && answer !== undefined) {
+            console.log('Sending answer via socket when moving to next question:', currentQuestion.id, 'answer:', answer);
+            
+            // Find the selected option details for socket transmission
+            const selectedOption = currentQuestion?.options?.find(opt => opt.id === answer);
+            
+            // Emit live answer update via socket (no DB storage)
+            socket.emit('live_answer_update', {
+                studentId: user.id,
+                studentName: user.full_name || user.email,
+                quizId: parseInt(quizId),
+                questionId: currentQuestion.id,
+                selectedOptionId: answer,
+                optionText: selectedOption?.option_text || 'Unknown option',
+                timestamp: Date.now()
+            });
 
-                console.log('Answer submitted successfully for question:', currentQuestion.id);
-            } catch (err) {
-                console.error('Failed to submit answer:', err);
-                setError(err.response?.data?.message || 'Failed to submit answer');
-                return; // Don't move to next question if submission failed
-            }
+            console.log('📡 Answer sent via socket when moving to next question - NO DATABASE CALL!');
         } else {
-            console.log('No answer to submit for question:', currentQuestion.id, 'Answer value:', answer, 'Type:', typeof answer);
+            console.log('No answer to send for question:', currentQuestion.id, 'Answer value:', answer, 'Type:', typeof answer);
         }
 
         // Move to next question
@@ -261,7 +257,7 @@ const QuizTaking = () => {
         }
     };
 
-    const handlePreviousQuestion = async () => {
+    const handlePreviousQuestion = () => {
         // Safety check
         if (!quiz || !quiz.questions || currentQuestionIndex >= quiz.questions.length) {
             console.error('Cannot go to previous question: invalid quiz state');
@@ -280,24 +276,27 @@ const QuizTaking = () => {
 
         console.log('Previous button clicked. Current question:', currentQuestion.id, 'Answer:', answer, 'Type:', typeof answer);
 
-        // Submit the current question's answer before going back
-        if (submission && answer != null && answer !== undefined) {
-            try {
-                console.log('Submitting answer before going to previous question:', currentQuestion.id);
-                
-                await api.post('/submissions/answer', {
-                    submissionId: submission.id,
-                    questionId: currentQuestion.id,
-                    selectedOptionId: answer
-                });
+        // Send answer via socket only before going back - NO DATABASE CALL!
+        if (answer != null && answer !== undefined) {
+            console.log('Sending answer via socket before going to previous question:', currentQuestion.id);
+            
+            // Find the selected option details for socket transmission
+            const selectedOption = currentQuestion?.options?.find(opt => opt.id === answer);
+            
+            // Emit live answer update via socket (no DB storage)
+            socket.emit('live_answer_update', {
+                studentId: user.id,
+                studentName: user.full_name || user.email,
+                quizId: parseInt(quizId),
+                questionId: currentQuestion.id,
+                selectedOptionId: answer,
+                optionText: selectedOption?.option_text || 'Unknown option',
+                timestamp: Date.now()
+            });
 
-                console.log('Answer submitted successfully before going back');
-            } catch (err) {
-                console.error('Failed to submit answer before going back:', err);
-                setError(err.response?.data?.message || 'Failed to submit answer');
-            }
+            console.log('📡 Answer sent via socket before going back - NO DATABASE CALL!');
         } else {
-            console.log('No answer to submit for question:', currentQuestion.id, 'Answer value:', answer, 'Type:', typeof answer);
+            console.log('No answer to send for question:', currentQuestion.id, 'Answer value:', answer, 'Type:', typeof answer);
         }
 
         if (currentQuestionIndex > 0) {
@@ -305,26 +304,29 @@ const QuizTaking = () => {
         }
     };
 
-    const handleQuestionJump = async (index) => {
+    const handleQuestionJump = (index) => {
         const currentQuestion = quiz.questions[currentQuestionIndex];
         const answer = answers[currentQuestion.id];
 
-        // Submit the current question's answer before jumping
-        if (submission && answer !== undefined && answer !== '') {
-            try {
-                console.log('Submitting answer before jumping from question:', currentQuestion.id, 'to question:', index + 1);
-                
-                await api.post('/submissions/answer', {
-                    submissionId: submission.id,
-                    questionId: currentQuestion.id,
-                    selectedOptionId: answer
-                });
+        // Send answer via socket only before jumping - NO DATABASE CALL!
+        if (answer !== undefined && answer !== '') {
+            console.log('Sending answer via socket before jumping from question:', currentQuestion.id, 'to question:', index + 1);
+            
+            // Find the selected option details for socket transmission
+            const selectedOption = currentQuestion?.options?.find(opt => opt.id === answer);
+            
+            // Emit live answer update via socket (no DB storage)
+            socket.emit('live_answer_update', {
+                studentId: user.id,
+                studentName: user.full_name || user.email,
+                quizId: parseInt(quizId),
+                questionId: currentQuestion.id,
+                selectedOptionId: answer,
+                optionText: selectedOption?.option_text || 'Unknown option',
+                timestamp: Date.now()
+            });
 
-                console.log('Answer submitted successfully before jumping');
-            } catch (err) {
-                console.error('Failed to submit answer before jumping:', err);
-                setError(err.response?.data?.message || 'Failed to submit answer');
-            }
+            console.log('📡 Answer sent via socket before jumping - NO DATABASE CALL!');
         }
 
         setCurrentQuestionIndex(index);
@@ -352,8 +354,13 @@ const QuizTaking = () => {
             navigate('/student/quizzes');
             
         } catch (err) {
-            console.error('❌ Failed to complete quiz:', err.response?.data || err.message);
-            setError(err.response?.data?.message || 'Failed to complete quiz');
+            console.error('❌ Failed to complete quiz:', err);
+            console.error('❌ Error response:', err.response);
+            console.error('❌ Error data:', err.response?.data);
+            
+            const errorMessage = err.response?.data?.message || err.message || 'Failed to complete quiz';
+            setError(errorMessage);
+            alert(`Error completing quiz: ${errorMessage}`);
         } finally {
             setSubmitting(false);
             setShowConfirmSubmit(false);

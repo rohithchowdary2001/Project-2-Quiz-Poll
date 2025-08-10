@@ -115,6 +115,12 @@ class Server {
                 console.log(`📡 Socket ${socket.id} joined class room class_${classId}`);
             });
 
+            // Join quiz room for live answer updates
+            socket.on('join_quiz_room', (quizId) => {
+                socket.join(`quiz_${quizId}`);
+                console.log(`📡 Socket ${socket.id} joined quiz room quiz_${quizId}`);
+            });
+
             socket.on('disconnect', () => {
                 console.log('📡 Socket disconnected:', socket.id);
             });

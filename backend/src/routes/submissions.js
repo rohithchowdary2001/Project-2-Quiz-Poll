@@ -481,12 +481,32 @@ if (global.io) {
         });
       }
 
-      // Bulk insert all answers
+      // Bulk insert all answers using ON DUPLICATE KEY UPDATE to handle existing answers
       if (answerInserts.length > 0) {
         for (const answer of answerInserts) {
-          await database.insert("student_answers", answer);
+          try {
+            // Try to insert, if duplicate exists, update instead
+            const sql = `
+              INSERT INTO student_answers (submission_id, question_id, selected_option_id, is_correct, answered_at)
+              VALUES (?, ?, ?, ?, ?)
+              ON DUPLICATE KEY UPDATE
+                selected_option_id = VALUES(selected_option_id),
+                is_correct = VALUES(is_correct),
+                answered_at = VALUES(answered_at)
+            `;
+            await database.query(sql, [
+              answer.submission_id,
+              answer.question_id,
+              answer.selected_option_id,
+              answer.is_correct,
+              answer.answered_at
+            ]);
+          } catch (insertError) {
+            console.error(`Error inserting/updating answer for question ${answer.question_id}:`, insertError);
+            // Continue with other answers even if one fails
+          }
         }
-        console.log(`✅ Inserted ${answerInserts.length} answers for submission ${submissionId}`);
+        console.log(`✅ Processed ${answerInserts.length} answers for submission ${submissionId}`);
       }
 
       // Calculate score
@@ -496,12 +516,13 @@ if (global.io) {
       // Mark submission as completed
       await database.update(
         "quiz_submissions",
-        { id: submissionId },
         {
           is_completed: true,
-          completed_at: currentTime,
-          score: score,
-        }
+          submitted_at: currentTime,
+          total_score: correctAnswers,
+          max_score: totalQuestions,
+        },
+        { id: submissionId }
       );
 
       // Log quiz completion
