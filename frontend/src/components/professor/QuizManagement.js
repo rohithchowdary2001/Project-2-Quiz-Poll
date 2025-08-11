@@ -506,7 +506,15 @@ const QuizManagement = () => {
                             className="btn btn-sm btn-outline-primary"
                           >
                             <i className="fas fa-chart-bar me-1"></i>
-                            More...
+                            Results
+                          </Link>
+                          <Link
+                            to={`/professor/edit-quiz/${quiz.id}`}
+                            className="btn btn-sm btn-outline-secondary"
+                            title="Edit Quiz"
+                          >
+                            <i className="fas fa-edit me-1"></i>
+                            Edit
                           </Link>
                           <button
                             className="btn btn-sm btn-outline-danger"

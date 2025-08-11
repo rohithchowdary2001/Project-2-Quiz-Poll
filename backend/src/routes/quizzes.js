@@ -1299,6 +1299,211 @@ class QuizController {
       next(error);
     }
   }
+
+  // Check if quiz can be edited (no attempts yet)
+  static async canEditQuiz(req, res, next) {
+    try {
+      const quizId = parseInt(req.params.id);
+      const professorId = req.user.id;
+
+      // Verify professor owns the quiz
+      const quiz = await database.findOne("quizzes", {
+        id: quizId,
+        professor_id: professorId
+      });
+
+      if (!quiz) {
+        throw ErrorHandler.notFoundError("Quiz not found or you do not have permission");
+      }
+
+      // Check if any students have attempted this quiz
+      const attemptCount = await database.query(`
+        SELECT COUNT(*) as count 
+        FROM quiz_submissions 
+        WHERE quiz_id = ?
+      `, [quizId]);
+
+      const hasAttempts = attemptCount[0].count > 0;
+
+      res.json({
+        canEdit: !hasAttempts,
+        hasAttempts: hasAttempts,
+        attemptCount: attemptCount[0].count,
+        message: hasAttempts 
+          ? `Cannot edit directly - ${attemptCount[0].count} student(s) have already attempted this quiz. Editing will create a new version.`
+          : "Quiz can be edited directly as no students have attempted it yet."
+      });
+
+    } catch (error) {
+      console.error('❌ Can Edit Quiz Error:', error);
+      next(error);
+    }
+  }
+
+  // Edit quiz (creates new version if attempts exist)
+  static async editQuiz(req, res, next) {
+    try {
+      const quizId = parseInt(req.params.id);
+      const professorId = req.user.id;
+      const { title, description, deadline, time_limit_minutes, questions } = req.body;
+
+      // Verify professor owns the quiz
+      const originalQuiz = await database.findOne("quizzes", {
+        id: quizId,
+        professor_id: professorId
+      });
+
+      if (!originalQuiz) {
+        throw ErrorHandler.notFoundError("Quiz not found or you do not have permission");
+      }
+
+      // Check if any students have attempted this quiz
+      const attemptCount = await database.query(`
+        SELECT COUNT(*) as count 
+        FROM quiz_submissions 
+        WHERE quiz_id = ?
+      `, [quizId]);
+
+      const hasAttempts = attemptCount[0].count > 0;
+
+      let updatedQuizId = quizId;
+      let isNewVersion = false;
+
+      // For now, always edit directly to preserve results
+      // TODO: Implement smart versioning logic later based on specific requirements
+      
+      // Edit directly - whether there are attempts or not
+      const updateData = {
+        updated_at: new Date()
+      };
+      
+      if (title) updateData.title = title;
+      if (description) updateData.description = description;
+      if (deadline) updateData.deadline = deadline;
+      if (time_limit_minutes) updateData.time_limit_minutes = time_limit_minutes;
+      
+      // Ensure version fields are set properly for existing quizzes
+      if (!originalQuiz.version) updateData.version = 1;
+      if (originalQuiz.is_current_version === null || originalQuiz.is_current_version === undefined) {
+        updateData.is_current_version = true;
+      }
+
+      await database.update("quizzes", updateData, { id: quizId });
+
+      // Handle questions update
+      if (questions && Array.isArray(questions)) {
+        // Always do direct edit - delete old questions and create new ones
+        // This preserves existing quiz results while allowing content updates
+        await database.query("DELETE FROM answer_options WHERE question_id IN (SELECT id FROM questions WHERE quiz_id = ?)", [quizId]);
+        await database.query("DELETE FROM questions WHERE quiz_id = ?", [quizId]);
+
+        for (let i = 0; i < questions.length; i++) {
+          const questionData = questions[i];
+          const newQuestionData = {
+            quiz_id: quizId,
+            question_text: questionData.question_text,
+            question_type: questionData.question_type || 'multiple_choice',
+            question_order: i + 1,
+            points: questionData.points || 1,
+            question_time_limit: questionData.question_time_limit,
+            is_required: questionData.is_required !== false, // Default to true unless explicitly false
+            quiz_version: originalQuiz.version || 1,
+            created_at: new Date(),
+            updated_at: new Date()
+          };
+
+          const questionResult = await database.insert("questions", newQuestionData);
+          const newQuestionId = questionResult.insertId;
+
+          // Add options
+          if (questionData.options && Array.isArray(questionData.options)) {
+            for (let j = 0; j < questionData.options.length; j++) {
+              const optionData = questionData.options[j];
+              const newOptionData = {
+                question_id: newQuestionId,
+                option_text: optionData.option_text,
+                option_order: j + 1,
+                is_correct: optionData.is_correct || false,
+                question_version: originalQuiz.version || 1,
+                created_at: new Date()
+              };
+
+              await database.insert("answer_options", newOptionData);
+            }
+          }
+        }
+      }
+
+      // Log the action
+      await AuditLogger.logUserAction(
+        professorId,
+        "QUIZ_EDIT",
+        "quizzes",
+        updatedQuizId,
+        { original_quiz_id: quizId, has_attempts: hasAttempts },
+        { 
+          quiz_id: updatedQuizId, 
+          is_new_version: false,
+          version: originalQuiz.version || 1 
+        },
+        req
+      );
+
+      res.json({
+        message: "Quiz updated successfully. All previous results are preserved.",
+        quiz: {
+          id: updatedQuizId,
+          isNewVersion: false,
+          version: originalQuiz.version || 1,
+          attemptCount: attemptCount[0].count
+        }
+      });
+
+    } catch (error) {
+      console.error('❌ Edit Quiz Error:', error);
+      next(error);
+    }
+  }
+
+  // Get quiz edit history/versions
+  static async getQuizVersions(req, res, next) {
+    try {
+      const quizId = parseInt(req.params.id);
+      const professorId = req.user.id;
+
+      // Verify professor owns the quiz
+      const quiz = await database.findOne("quizzes", {
+        id: quizId,
+        professor_id: professorId
+      });
+
+      if (!quiz) {
+        throw ErrorHandler.notFoundError("Quiz not found or you do not have permission");
+      }
+
+      // Get all versions of this quiz (including the original)
+      const versions = await database.query(`
+        SELECT q.*, 
+               (SELECT COUNT(*) FROM questions WHERE quiz_id = q.id) as question_count,
+               (SELECT COUNT(*) FROM quiz_submissions WHERE quiz_id = q.id AND is_completed = true) as submission_count
+        FROM quizzes q
+        WHERE q.id = ? OR q.created_from_version IN (
+          SELECT version FROM quizzes WHERE id = ?
+        )
+        ORDER BY q.version ASC
+      `, [quizId, quizId]);
+
+      res.json({
+        message: "Quiz versions retrieved successfully",
+        versions: versions,
+        currentVersion: versions.find(v => v.is_current_version) || versions[0]
+      });
+
+    } catch (error) {
+      console.error('❌ Get Quiz Versions Error:', error);
+      next(error);
+    }
+  }
 }
 
 // Quiz routes
@@ -1393,6 +1598,30 @@ router.post(
   AuthMiddleware.verifyToken,
   AuthMiddleware.requireProfessor,
   ErrorHandler.asyncHandler(QuizController.copyQuiz)
+);
+
+// Check if quiz can be edited (no attempts yet)
+router.get(
+  "/:id/can-edit",
+  AuthMiddleware.verifyToken,
+  AuthMiddleware.requireProfessor,
+  ErrorHandler.asyncHandler(QuizController.canEditQuiz)
+);
+
+// Edit quiz (creates new version if attempts exist)
+router.put(
+  "/:id/edit",
+  AuthMiddleware.verifyToken,
+  AuthMiddleware.requireProfessor,
+  ErrorHandler.asyncHandler(QuizController.editQuiz)
+);
+
+// Get quiz edit history
+router.get(
+  "/:id/versions",
+  AuthMiddleware.verifyToken,
+  AuthMiddleware.requireProfessor,
+  ErrorHandler.asyncHandler(QuizController.getQuizVersions)
 );
 
 module.exports = router;

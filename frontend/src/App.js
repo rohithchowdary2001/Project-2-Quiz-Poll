@@ -19,6 +19,7 @@ import AuditLogs from './components/admin/Auditlogs';
 import ClassManagement from './components/professor/ClassManagement';
 import QuizManagement from './components/professor/QuizManagement';
 import QuizResults from './components/professor/QuizResults';
+import EditQuiz from './components/professor/EditQuiz';
 
 // Student Components
 import AvailableQuizzes from './components/student/AvailableQuizzes';
@@ -302,6 +303,14 @@ function App() {
                     element={
                         <ProtectedRoute requiredRole="professor">
                             <QuizResults />
+                        </ProtectedRoute>
+                    }
+                />
+                <Route
+                    path="/professor/edit-quiz/:quizId"
+                    element={
+                        <ProtectedRoute requiredRole="professor">
+                            <EditQuiz />
                         </ProtectedRoute>
                     }
                 />
