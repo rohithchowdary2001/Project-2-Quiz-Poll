@@ -606,6 +606,71 @@ class QuizController {
     }
   }
 
+  // Get individual student answers for a quiz (professor only)
+  static async getStudentQuizAnswers(req, res, next) {
+    try {
+      const { id, studentId } = req.params;
+
+      // Check quiz ownership
+      const quiz = await database.findOne("quizzes", {
+        id: id,
+        professor_id: req.user.id,
+        is_active: true,
+      });
+
+      if (!quiz) {
+        throw ErrorHandler.notFoundError(
+          "Quiz not found or you do not have permission"
+        );
+      }
+
+      // Get student's submission for this quiz
+      const submission = await database.findOne("quiz_submissions", {
+        quiz_id: id,
+        student_id: studentId,
+        is_completed: true,
+      });
+
+      if (!submission) {
+        return res.json({
+          message: "No completed submission found for this student",
+          answers: [],
+        });
+      }
+
+      // Get student's detailed answers
+      const answers = await database.query(
+        `
+          SELECT 
+            sa.id,
+            sa.question_id,
+            sa.selected_option_id,
+            q.question_text,
+            q.question_order,
+            ao.option_text,
+            ao.is_correct,
+            sa.answered_at
+          FROM student_answers sa
+          JOIN questions q ON sa.question_id = q.id
+          JOIN answer_options ao ON sa.selected_option_id = ao.id
+          WHERE sa.submission_id = ?
+          ORDER BY q.question_order
+        `,
+        [submission.id]
+      );
+
+      res.json({
+        student: {
+          id: studentId,
+          submission_id: submission.id,
+        },
+        answers: answers,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   // Create quiz from template (professor only)
   static async createFromTemplate(req, res, next) {
     try {
@@ -1236,6 +1301,14 @@ router.get(
   AuthMiddleware.verifyToken,
   AuthMiddleware.requireProfessor,
   ErrorHandler.asyncHandler(QuizController.getQuizResults)
+);
+
+// Get individual student answers for a quiz
+router.get(
+  "/:id/student/:studentId/answers",
+  AuthMiddleware.verifyToken,
+  AuthMiddleware.requireProfessor,
+  ErrorHandler.asyncHandler(QuizController.getStudentQuizAnswers)
 );
 
 // Toggle quiz live activation status (with DB update)

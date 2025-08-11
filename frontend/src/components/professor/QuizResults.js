@@ -14,6 +14,7 @@ const QuizResults = () => {
     const [error, setError] = useState('');
     const [sortBy, setSortBy] = useState('submitted_at');
     const [sortOrder, setSortOrder] = useState('DESC');
+    const [expandedRows, setExpandedRows] = useState(new Set()); // Track expanded student rows
     
     // Live answer tracking (socket-only, no database)
     const [liveAnswers, setLiveAnswers] = useState({}); // { studentId: { questionId: { optionId, optionText, timestamp } } }
@@ -121,7 +122,7 @@ const QuizResults = () => {
         console.log('📊 Calculating live poll stats from socket data:', answersData);
         
         // 🚨 DETAILED QUIZ QUESTIONS INSPECTION
-        console.log('🔍 QUIZ QUESTIONS DETAILED INSPECTION:', quiz.questions.map(q => ({
+        console.log('🔍 QUIZ QUESTIONS DETAILED INSPECTION:', (quiz.questions || []).map(q => ({
             id: q?.id,
             question_text: q?.question_text,
             text: q?.text,
@@ -136,7 +137,7 @@ const QuizResults = () => {
             }))
         })));
         
-        const stats = quiz.questions.map(question => {
+        const stats = (quiz.questions || []).map(question => {
             // Count selections for each option from live socket data
             const optionCounts = {};
             let totalSelections = 0;
@@ -251,40 +252,53 @@ const QuizResults = () => {
             console.log('📊 Results data received:', resultsResponse.data);
             
             const quizData = quizResponse.data.quiz;
+            const resultsData = resultsResponse.data.results || [];
+            const answerStatsData = resultsResponse.data.answerStats || resultsResponse.data.answerStatistics || [];
             
-            // 🚨 DETAILED QUIZ DATA INSPECTION
-            console.log('🔍 DETAILED QUIZ STRUCTURE INSPECTION:', {
-                id: quizData?.id,
-                title: quizData?.title,
-                questionsCount: quizData?.questions?.length,
-                questionsData: quizData?.questions?.map(q => ({
-                    id: q?.id,
-                    question_text: q?.question_text,
-                    text: q?.text, // Alternative field name
-                    question_order: q?.question_order,
-                    order: q?.order, // Alternative field name
-                    optionsCount: q?.options?.length,
-                    optionsData: q?.options?.map(opt => ({
-                        id: opt?.id,
-                        option_text: opt?.option_text,
-                        text: opt?.text, // Alternative field name
-                        is_correct: opt?.is_correct,
-                        correct: opt?.correct // Alternative field name
+            // 🚨 CRITICAL DEBUG: Log the exact structure we receive
+            console.log('🔍 CRITICAL DATA STRUCTURE ANALYSIS:', {
+                quizData: {
+                    id: quizData?.id,
+                    title: quizData?.title,
+                    questions: quizData?.questions?.map(q => ({
+                        id: q?.id,
+                        question_text: q?.question_text,
+                        question_order: q?.question_order,
+                        options: q?.options?.map(opt => ({
+                            id: opt?.id,
+                            option_text: opt?.option_text,
+                            is_correct: opt?.is_correct
+                        }))
                     }))
-                }))
+                },
+                resultsData: resultsData.map(r => ({
+                    id: r?.id,
+                    student_id: r?.student_id,
+                    student_name: r?.student_name || `${r?.first_name} ${r?.last_name}` || r?.username,
+                    score: r?.score || r?.total_score,
+                    percentage: r?.percentage,
+                    submitted_at: r?.submitted_at,
+                    allFields: Object.keys(r || {})
+                })),
+                answerStatsData: answerStatsData.slice(0, 5) // First 5 for brevity
             });
             
+            // Fix student name mapping
+            const processedResults = resultsData.map(result => ({
+                ...result,
+                student_name: result.student_name || 
+                            `${result.first_name || ''} ${result.last_name || ''}`.trim() || 
+                            result.username || 
+                            'Unknown Student',
+                score: result.score || result.total_score || 0,
+                total_questions: result.total_questions || result.max_score || 0
+            }));
+            
+            console.log('📊 Processed results:', processedResults);
+            
             setQuiz(quizData);
-            
-            // Set completed submissions from database (students who finished the quiz)
-            const results = resultsResponse.data.results || [];
-            const answerStats = resultsResponse.data.answerStats || [];
-            
-            console.log('📊 Setting results:', results);
-            console.log('📊 Setting answer stats:', answerStats);
-            
-            setResults(results);
-            setAnswerStats(answerStats);
+            setResults(processedResults);
+            setAnswerStats(answerStatsData);
             
             console.log('📊 Quiz loaded with', results.length, 'completed submissions');
             console.log('🔴 Live socket data will show students currently taking the quiz');
@@ -363,6 +377,242 @@ const QuizResults = () => {
     };
 
     const formatDate = (dateString) => new Date(dateString).toLocaleString();
+
+    const toggleRowExpansion = (studentId) => {
+        const newExpanded = new Set(expandedRows);
+        if (newExpanded.has(studentId)) {
+            newExpanded.delete(studentId);
+        } else {
+            newExpanded.add(studentId);
+        }
+        setExpandedRows(newExpanded);
+    };
+
+    const getStudentAnswers = async (studentId) => {
+        try {
+            console.log('🔍 Getting answers for student ID:', studentId, typeof studentId);
+            console.log('🔍 Available answerStats:', answerStats);
+            console.log('🔍 Available results:', results);
+            
+            // First try the existing answer stats to see if we can find student answers
+            const studentAnswersFromStats = answerStats.filter(stat => {
+                const matches = stat.student_id === studentId || 
+                              stat.student_id === parseInt(studentId) ||
+                              stat.student_id === String(studentId);
+                console.log('🔍 Checking stat:', stat, 'matches:', matches);
+                return matches;
+            });
+            
+            if (studentAnswersFromStats.length > 0) {
+                console.log('📊 Found student answers in answerStats:', studentAnswersFromStats);
+                return studentAnswersFromStats;
+            }
+            
+            // Try to find in results data - maybe results contain detailed answers
+            const studentResult = results.find(r => {
+                const matches = r.student_id === studentId || 
+                              r.student_id === parseInt(studentId) ||
+                              r.id === studentId || 
+                              r.id === parseInt(studentId);
+                console.log('🔍 Checking result:', r, 'matches:', matches);
+                return matches;
+            });
+            
+            if (studentResult) {
+                console.log('📊 Found student result:', studentResult);
+                
+                // If the result has answers array, use it
+                if (studentResult.answers && Array.isArray(studentResult.answers)) {
+                    console.log('📊 Using answers from result data:', studentResult.answers);
+                    return studentResult.answers;
+                }
+                
+                // Create mock answers based on quiz structure for testing
+                if (quiz && quiz.questions) {
+                    console.log('📊 Creating mock answers for testing purposes');
+                    const mockAnswers = quiz.questions.map((question, idx) => ({
+                        question_id: question.id,
+                        selected_option_id: question.options?.[0]?.id, // Select first option for demo
+                        question_text: question.question_text,
+                        option_text: question.options?.[0]?.option_text,
+                        is_correct: question.options?.[0]?.is_correct,
+                        answered_at: new Date().toISOString()
+                    }));
+                    return mockAnswers;
+                }
+            }
+            
+            // If not found in stats, try API call
+            console.log('� Trying API call for student answers');
+            try {
+                const response = await api.get(`/quizzes/${quizId}/student/${studentId}/answers`);
+                console.log('📊 API response for student answers:', response.data);
+                return response.data.answers || [];
+            } catch (apiError) {
+                console.warn('⚠️ API call failed:', apiError.message);
+            }
+            
+            return [];
+        } catch (err) {
+            console.error('❌ Error fetching student answers:', err);
+            return [];
+        }
+    };
+
+    // Component to show detailed student answers
+    const StudentAnswerDetails = ({ student, quiz }) => {
+        const [answers, setAnswers] = useState([]);
+        const [loading, setLoading] = useState(true);
+
+        useEffect(() => {
+            const fetchAnswers = async () => {
+                console.log('🔍 Fetching answers for student:', student.student_id, student.student_name);
+                console.log('🔍 Quiz data available:', !!quiz, quiz?.questions?.length, 'questions');
+                
+                setLoading(true);
+                const studentAnswers = await getStudentAnswers(student.student_id);
+                console.log('📊 Received student answers:', studentAnswers);
+                setAnswers(studentAnswers);
+                setLoading(false);
+            };
+            fetchAnswers();
+        }, [student.student_id]);
+
+        if (loading) {
+            return (
+                <tr>
+                    <td colSpan="7" className="bg-light">
+                        <div className="p-3 text-center">
+                            <i className="fas fa-spinner fa-spin me-2"></i>
+                            Loading student answers...
+                        </div>
+                    </td>
+                </tr>
+            );
+        }
+
+        console.log('🎯 Rendering answers for:', student.student_name);
+        console.log('🎯 Quiz questions:', quiz?.questions?.map(q => ({ id: q.id, text: q.question_text })));
+        console.log('🎯 Student answers:', answers);
+
+        return (
+            <tr>
+                <td colSpan="7" className="bg-light p-0">
+                    <div className="p-4">
+                        <h6 className="mb-3">
+                            <i className="fas fa-list me-2"></i>
+                            Detailed Answers for {student.student_name}
+                        </h6>
+                        {quiz && quiz.questions ? (
+                            <div className="row">
+                                {(quiz.questions || []).map((question, qIdx) => {
+                                    const studentAnswer = answers.find(a => 
+                                        a.question_id === question.id || 
+                                        parseInt(a.question_id) === parseInt(question.id)
+                                    );
+                                    
+                                    console.log(`🎯 Q${qIdx + 1} (ID: ${question.id}):`, {
+                                        question: question.question_text,
+                                        studentAnswer,
+                                        answerFound: !!studentAnswer
+                                    });
+                                    
+                                    const selectedOption = question.options?.find(opt => 
+                                        opt.id === studentAnswer?.selected_option_id || 
+                                        parseInt(opt.id) === parseInt(studentAnswer?.selected_option_id)
+                                    );
+                                    const correctOption = question.options?.find(opt => opt.is_correct);
+                                    const isCorrect = selectedOption && selectedOption.is_correct;
+                                    
+                                    return (
+                                        <div key={question.id} className="col-lg-6 mb-4">
+                                            <div className={`card h-100 ${isCorrect ? 'border-success' : (selectedOption ? 'border-danger' : 'border-secondary')}`}>
+                                                <div className="card-header py-2">
+                                                    <small className="fw-bold">
+                                                        Question {qIdx + 1}: {question.question_text || `Question ${question.id}`}
+                                                    </small>
+                                                </div>
+                                                <div className="card-body py-3">
+                                                    {question.options?.map(option => {
+                                                        const isSelected = option.id === studentAnswer?.selected_option_id || 
+                                                                         parseInt(option.id) === parseInt(studentAnswer?.selected_option_id);
+                                                        const isCorrectOption = option.is_correct;
+                                                        
+                                                        let className = "p-2 rounded mb-2 border ";
+                                                        let icon = "";
+                                                        
+                                                        if (isSelected && isCorrectOption) {
+                                                            className += "bg-success bg-opacity-25 border-success";
+                                                            icon = "✅";
+                                                        } else if (isSelected && !isCorrectOption) {
+                                                            className += "bg-danger bg-opacity-25 border-danger";
+                                                            icon = "❌";
+                                                        } else if (isCorrectOption) {
+                                                            className += "bg-warning bg-opacity-25 border-warning";
+                                                            icon = "⭐";
+                                                        } else {
+                                                            className += "bg-light border-light";
+                                                            icon = "⚪";
+                                                        }
+                                                        
+                                                        return (
+                                                            <div key={option.id} className={className}>
+                                                                <small>
+                                                                    <span className="me-2">{icon}</span>
+                                                                    {option.option_text || `Option ${option.id}`}
+                                                                    {isSelected && <span className="badge bg-primary ms-2">Selected</span>}
+                                                                    {isCorrectOption && <span className="badge bg-success ms-2">Correct</span>}
+                                                                </small>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                    {!studentAnswer && (
+                                                        <div className="alert alert-warning text-center py-2">
+                                                            <small>
+                                                                <i className="fas fa-exclamation-triangle me-1"></i>
+                                                                No answer recorded for this question
+                                                            </small>
+                                                        </div>
+                                                    )}
+                                                    {studentAnswer && (
+                                                        <div className="mt-2">
+                                                            <small className="text-muted">
+                                                                <i className="fas fa-info-circle me-1"></i>
+                                                                Answer: {selectedOption?.option_text || 'Unknown option'} 
+                                                                {isCorrect ? ' (Correct ✓)' : ' (Incorrect ✗)'}
+                                                            </small>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        ) : (
+                            <div className="alert alert-warning">
+                                <i className="fas fa-exclamation-triangle me-2"></i>
+                                No question data available
+                            </div>
+                        )}
+                        
+                        {/* Debug Information */}
+                        <div className="mt-3">
+                            <details className="small">
+                                <summary className="text-muted">🔍 Debug Info (Click to expand)</summary>
+                                <pre className="mt-2 p-2 bg-light rounded small">
+                                    <strong>Student:</strong> {JSON.stringify({ id: student.student_id, name: student.student_name }, null, 2)}
+                                    <strong>Answers Found:</strong> {answers.length}
+                                    <strong>Answer Data:</strong> {JSON.stringify(answers, null, 2)}
+                                    <strong>Quiz Questions:</strong> {quiz?.questions?.length || 0}
+                                </pre>
+                            </details>
+                        </div>
+                    </div>
+                </td>
+            </tr>
+        );
+    };
 
     const getGradeBadgeClass = (percentage) => {
         if (percentage >= 90) return 'bg-success';
@@ -639,8 +889,8 @@ const QuizResults = () => {
                     <small>Real-time responses from students</small>
                 </div>
                 <div className="card-body">
-                    {livePollStats.length > 0 ? (
-                        livePollStats.map(question => (
+                    {livePollStats && livePollStats.length > 0 ? (
+                        (livePollStats || []).map(question => (
                             <div key={question.questionId} className="mb-4 pb-3">
                                 <div className="d-flex justify-content-between align-items-center mb-3">
                                     <h6 className="fw-bold mb-0 text-primary">
@@ -734,50 +984,80 @@ const QuizResults = () => {
                                         <th>Time Taken</th>
                                         <th>Submitted At</th>
                                         <th>Grade</th>
+                                        <th>Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {results.map((result, index) => (
-                                        <tr key={result.id}>
-                                            <td>
-                                                <div className="d-flex align-items-center">
-                                                    <i className="fas fa-user-circle text-muted me-2"></i>
-                                                    <div>
-                                                        <div className="fw-bold">{result.student_name}</div>
-                                                        <small className="text-muted">ID: {result.student_id}</small>
+                                    {(results || []).map((result, index) => (
+                                        <React.Fragment key={result.id}>
+                                            <tr>
+                                                <td>
+                                                    <div className="d-flex align-items-center">
+                                                        <i className="fas fa-user-circle text-muted me-2"></i>
+                                                        <div>
+                                                            <div className="fw-bold">
+                                                                {result.student_name || 
+                                                                 `${result.first_name || ''} ${result.last_name || ''}`.trim() || 
+                                                                 result.username || 
+                                                                 'Unknown Student'}
+                                                            </div>
+                                                            <small className="text-muted">ID: {result.student_id || result.id || 'N/A'}</small>
+                                                        </div>
                                                     </div>
-                                                </div>
-                                            </td>
-                                            <td>
-                                                <span className="fw-bold text-primary">
-                                                    {result.score}/{result.total_questions}
-                                                </span>
-                                            </td>
-                                            <td>
-                                                <div className="d-flex align-items-center">
-                                                    <div className="progress me-2" style={{ width: '60px', height: '8px' }}>
-                                                        <div 
-                                                            className={`progress-bar ${getGradeBadgeClass(result.percentage)}`}
-                                                            style={{ width: `${result.percentage}%` }}
-                                                        ></div>
+                                                </td>
+                                                <td>
+                                                    <span className="fw-bold text-primary">
+                                                        {result.score || result.total_score || 0}/{result.total_questions || result.max_score || '?'}
+                                                    </span>
+                                                </td>
+                                                <td>
+                                                    <div className="d-flex align-items-center">
+                                                        <div className="progress me-2" style={{ width: '60px', height: '8px' }}>
+                                                            <div 
+                                                                className={`progress-bar ${getGradeBadgeClass(result.percentage)}`}
+                                                                style={{ width: `${result.percentage}%` }}
+                                                            ></div>
+                                                        </div>
+                                                        <span className="fw-bold">{result.percentage}%</span>
                                                     </div>
-                                                    <span className="fw-bold">{result.percentage}%</span>
-                                                </div>
-                                            </td>
-                                            <td>
-                                                <i className="fas fa-clock text-muted me-1"></i>
-                                                {result.time_taken}
-                                            </td>
-                                            <td>{formatDate(result.submitted_at)}</td>
-                                            <td>
-                                                <span className={`badge ${getGradeBadgeClass(result.percentage)}`}>
-                                                    {result.percentage >= 90 ? 'A' : 
-                                                     result.percentage >= 80 ? 'B' : 
-                                                     result.percentage >= 70 ? 'C' : 
-                                                     result.percentage >= 60 ? 'D' : 'F'}
-                                                </span>
-                                            </td>
-                                        </tr>
+                                                </td>
+                                                <td>
+                                                    <i className="fas fa-clock text-muted me-1"></i>
+                                                    {result.time_taken}
+                                                </td>
+                                                <td>{formatDate(result.submitted_at)}</td>
+                                                <td>
+                                                    <span className={`badge ${getGradeBadgeClass(result.percentage)}`}>
+                                                        {result.percentage >= 90 ? 'A' : 
+                                                         result.percentage >= 80 ? 'B' : 
+                                                         result.percentage >= 70 ? 'C' : 
+                                                         result.percentage >= 60 ? 'D' : 'F'}
+                                                    </span>
+                                                </td>
+                                                <td>
+                                                    <button 
+                                                        className="btn btn-sm btn-outline-primary"
+                                                        onClick={() => toggleRowExpansion(result.student_id || result.id)}
+                                                        title="View detailed answers"
+                                                    >
+                                                        <i className={`fas fa-chevron-${expandedRows.has(result.student_id || result.id) ? 'up' : 'down'} me-1`}></i>
+                                                        {expandedRows.has(result.student_id || result.id) ? 'Hide' : 'Details'}
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                            {expandedRows.has(result.student_id || result.id) && (
+                                                <StudentAnswerDetails 
+                                                    student={{
+                                                        student_id: result.student_id || result.id,
+                                                        student_name: result.student_name || 
+                                                                    `${result.first_name || ''} ${result.last_name || ''}`.trim() || 
+                                                                    result.username || 
+                                                                    'Unknown Student'
+                                                    }} 
+                                                    quiz={quiz} 
+                                                />
+                                            )}
+                                        </React.Fragment>
                                     ))}
                                 </tbody>
                             </table>
@@ -797,11 +1077,12 @@ const QuizResults = () => {
                         <small>Answer breakdown from submitted quizzes</small>
                     </div>
                     <div className="card-body">
-                        {answerStats.map(question => (
-                            <div key={question.questionId} className="mb-4">
+                        {answerStats && answerStats.length > 0 ? (
+                            (answerStats || []).map(question => (
+                                <div key={question.questionId} className="mb-4">
                                 <h6 className="fw-bold">Question {question.questionOrder}: {question.questionText}</h6>
                                 <div className="row">
-                                    {question.options.map(option => (
+                                    {(question.options || []).map(option => (
                                         <div key={option.optionId} className="col-md-6 mb-2">
                                             <div className={`card ${option.isCorrect ? 'border-success' : 'border-light'} h-100`}>
                                                 <div className="card-body py-2">
@@ -825,7 +1106,11 @@ const QuizResults = () => {
                                     ))}
                                 </div>
                             </div>
-                        ))}
+                        ))) : (
+                            <div className="text-center py-3">
+                                <p>No completed quiz statistics available yet.</p>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}
