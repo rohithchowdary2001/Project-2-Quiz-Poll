@@ -27,6 +27,10 @@ class Server {
     constructor() {
         this.app = express();
         this.port = config.server.port;
+        
+        // In-memory store for current quiz statuses (socket-only)
+        this.currentQuizStatuses = new Map(); // quizId -> { isLiveActive, quizTitle, classId, timestamp }
+        
         this.setupMiddleware();
         this.setupRoutes();
         this.setupErrorHandling();
@@ -89,6 +93,18 @@ class Server {
             socket.on('quiz_live_status_change', (data) => {
                 console.log('📡 SOCKET-ONLY: Quiz status change relay (NO DATABASE!):', data);
                 
+                // Store current status in memory for new users
+                this.currentQuizStatuses.set(data.quizId, {
+                    isLiveActive: data.isLiveActive,
+                    quizTitle: data.quizTitle,
+                    classId: data.classId,
+                    timestamp: data.timestamp,
+                    professorId: data.professorId,
+                    professorName: data.professorName
+                });
+                
+                console.log(`💾 Stored quiz ${data.quizId} status in memory: ${data.isLiveActive ? 'ACTIVE' : 'PAUSED'}`);
+                
                 // Get all sockets in the class room to verify broadcasting
                 const classRoom = `class_${data.classId}`;
                 const socketsInRoom = this.io.sockets.adapter.rooms.get(classRoom);
@@ -125,6 +141,24 @@ class Server {
             socket.on('join_class_room', (classId) => {
                 socket.join(`class_${classId}`);
                 console.log(`📡 Socket ${socket.id} joined class room class_${classId}`);
+                
+                // Send current quiz statuses for this class to the newly joined user
+                const currentStatuses = [];
+                for (const [quizId, status] of this.currentQuizStatuses.entries()) {
+                    if (status.classId === classId) {
+                        currentStatuses.push({
+                            quizId: parseInt(quizId),
+                            quizTitle: status.quizTitle,
+                            isLiveActive: status.isLiveActive,
+                            timestamp: status.timestamp
+                        });
+                    }
+                }
+                
+                if (currentStatuses.length > 0) {
+                    console.log(`📤 Sending ${currentStatuses.length} current quiz statuses to newly joined user`);
+                    socket.emit('current_quiz_statuses', currentStatuses);
+                }
                 
                 // Verify the join was successful
                 const classRoom = `class_${classId}`;

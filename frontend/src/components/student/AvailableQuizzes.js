@@ -37,11 +37,18 @@ const AvailableQuizzes = () => {
             
             // Update the specific quiz in our local state
             setQuizzes(prev => {
-                const updated = prev.map(quiz => 
-                    quiz.id === data.quizId 
-                        ? { ...quiz, is_live_active: data.isLiveActive }
-                        : quiz
-                );
+                const updated = prev.map(quiz => {
+                    if (quiz.id === data.quizId) {
+                        console.log(`🔄 Live update for quiz ${data.quizId}:`, {
+                            from: quiz.is_live_active,
+                            fromType: typeof quiz.is_live_active,
+                            to: data.isLiveActive,
+                            toType: typeof data.isLiveActive
+                        });
+                        return { ...quiz, is_live_active: data.isLiveActive };
+                    }
+                    return quiz;
+                });
                 console.log(`📊 Updated quiz ${data.quizId} to ${data.isLiveActive ? 'ACTIVE' : 'PAUSED'}`);
                 return updated;
             });
@@ -108,9 +115,33 @@ const AvailableQuizzes = () => {
             console.log('❌ Socket disconnected in AvailableQuizzes');
         });
 
+        // Listen for current quiz statuses when joining rooms
+        socket.on('current_quiz_statuses', (statuses) => {
+            console.log('📥 Received current quiz statuses from backend:', statuses);
+            
+            // Update quiz statuses based on received data
+            setQuizzes(prev => {
+                const updated = prev.map(quiz => {
+                    const currentStatus = statuses.find(s => s.quizId === quiz.id);
+                    if (currentStatus) {
+                        console.log(`🔄 Updating quiz ${quiz.id} status:`, {
+                            from: quiz.is_live_active,
+                            fromType: typeof quiz.is_live_active,
+                            to: currentStatus.isLiveActive,
+                            toType: typeof currentStatus.isLiveActive
+                        });
+                        return { ...quiz, is_live_active: currentStatus.isLiveActive };
+                    }
+                    return quiz;
+                });
+                return updated;
+            });
+        });
+
         return () => {
             console.log('📡 Cleaning up socket-only listeners for quiz status changes');
             socket.off('quiz_live_status_change', handleQuizStatusChange);
+            socket.off('current_quiz_statuses');
             socket.off('connect');
             socket.off('disconnect');
         };
@@ -199,7 +230,22 @@ const AvailableQuizzes = () => {
 
     const canStartQuiz = (quiz) => {
         const status = getQuizStatus(quiz);
-        return status === 'Available' && quiz.is_live_active === true;
+        // Handle MySQL BOOLEAN (0/1) and JavaScript boolean (true/false)
+        const isLiveActive = !!quiz.is_live_active; // Convert any truthy value to boolean
+        
+        // Temporary debug logging to see what's happening
+        if (quiz.id === 7) { // Assuming the quiz ID you're testing with
+            console.log('🔍 DEBUG Quiz 7 canStartQuiz:', {
+                quizId: quiz.id,
+                status: status,
+                is_live_active_raw: quiz.is_live_active,
+                is_live_active_type: typeof quiz.is_live_active,
+                isLiveActive: isLiveActive,
+                canStart: status === 'Available' && isLiveActive
+            });
+        }
+        
+        return status === 'Available' && isLiveActive;
     };
 
     const canContinueQuiz = (quiz) => {
@@ -232,28 +278,6 @@ const AvailableQuizzes = () => {
                     <button className="btn btn-primary me-2" onClick={fetchAvailableQuizzes}>
                         <i className="fas fa-sync-alt me-2"></i>
                         Refresh
-                    </button>
-                    <button 
-                        className="btn btn-warning" 
-                        onClick={() => {
-                            console.log('🔍 STUDENT DEBUG INFO:');
-                            console.log('Socket connected:', socket.connected);
-                            console.log('Socket ID:', socket.id);
-                            console.log('Available classes:', classes);
-                            console.log('Current quizzes:', quizzes);
-                            console.log('User info:', user);
-                            
-                            // Test class room joining
-                            if (classes.length > 0) {
-                                classes.forEach(classItem => {
-                                    console.log(`📡 Re-joining class room: ${classItem.id}`);
-                                    socket.emit('join_class_room', classItem.id);
-                                });
-                            }
-                        }}
-                    >
-                        <i className="fas fa-bug me-2"></i>
-                        Debug Socket
                     </button>
                 </div>
             </div>
@@ -303,16 +327,16 @@ const AvailableQuizzes = () => {
                                                 {status}
                                             </span>
                                             <span className={`badge ${
-                                                quiz.is_live_active 
+                                                !!quiz.is_live_active 
                                                     ? 'bg-success' 
                                                     : 'bg-secondary'
                                             }`}>
                                                 <i className={`fas ${
-                                                    quiz.is_live_active 
+                                                    !!quiz.is_live_active 
                                                         ? 'fa-broadcast-tower' 
                                                         : 'fa-pause-circle'
                                                 } me-1`}></i>
-                                                {quiz.is_live_active ? 'Live' : 'Paused'}
+                                                {!!quiz.is_live_active ? 'Live' : 'Paused'}
                                                 <small className="ms-1" title="Socket-only status, no database">⚡</small>
                                             </span>
                                         </div>

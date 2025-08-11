@@ -50,6 +50,12 @@ const QuizResults = () => {
         socket.on('live_answer_update', (data) => {
             // Only process if it's for this quiz
             if (String(data.quizId) === String(quizId)) {
+                
+                // Debug first question specifically
+                if (data.questionId === 23 || data.questionId === '23') {
+                    console.log('🎯 FIRST QUESTION (23) RECEIVED:', data);
+                }
+                
                 // Update live answers state
                 setLiveAnswers(prev => {
                     const updated = {
@@ -64,6 +70,16 @@ const QuizResults = () => {
                             }
                         }
                     };
+                    
+                    // Debug first question storage
+                    if (data.questionId === 23 || data.questionId === '23') {
+                        console.log('🎯 FIRST QUESTION STORED:', {
+                            questionId: data.questionId,
+                            studentId: data.studentId,
+                            updatedAnswers: updated
+                        });
+                    }
+                    
                     return updated;
                 });
 
@@ -93,6 +109,21 @@ const QuizResults = () => {
             return;
         }
         
+        // Debug: Check first question specifically
+        const firstQuestion = quiz.questions[0];
+        if (firstQuestion) {
+            console.log('🔍 First Question Debug:', {
+                questionId: firstQuestion.id,
+                questionIdType: typeof firstQuestion.id,
+                questionText: firstQuestion.question_text || firstQuestion.text,
+                answersForThisQuestion: Object.entries(answersData).map(([studentId, studentAnswers]) => ({
+                    studentId,
+                    hasAnswerForFirstQ: !!studentAnswers[firstQuestion.id],
+                    answerData: studentAnswers[firstQuestion.id]
+                }))
+            });
+        }
+        
         const stats = (quiz.questions || []).map(question => {
             // Count selections for each option from live socket data
             const optionCounts = {};
@@ -113,10 +144,29 @@ const QuizResults = () => {
             
             // Count selections from live socket data
             Object.values(answersData).forEach(studentAnswers => {
+                // Debug first question lookup
+                if (question.id === 23 || question.id === '23') {
+                    console.log('🔍 Checking question 23 in studentAnswers:', {
+                        questionId: question.id,
+                        studentAnswersKeys: Object.keys(studentAnswers),
+                        hasAnswer23: studentAnswers[23],
+                        hasAnswerStr23: studentAnswers['23']
+                    });
+                }
+                
                 const answer = studentAnswers[question.id];
                 if (answer && optionCounts[answer.selectedOptionId]) {
                     optionCounts[answer.selectedOptionId].selectionCount++;
                     totalSelections++;
+                    
+                    // Debug first question specifically
+                    if (question.id === 23 || question.id === '23') {
+                        console.log('🎯 FIRST QUESTION COUNTED:', {
+                            questionId: question.id,
+                            selectedOptionId: answer.selectedOptionId,
+                            totalSelections: totalSelections
+                        });
+                    }
                 }
             });
             
