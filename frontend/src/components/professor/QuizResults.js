@@ -57,9 +57,22 @@ const QuizResults = () => {
             console.log('📝 LIVE: Answer update received in QuizResults:', data);
             console.log('📝 Current quizId:', quizId, 'Received quizId:', data.quizId);
             
+            // 🚨 DETAILED QUESTION ID DEBUGGING
+            console.log('🔍 QUESTION ID DEBUG:', {
+                receivedQuestionId: data.questionId,
+                questionIdType: typeof data.questionId,
+                availableQuizQuestions: quiz?.questions?.map(q => ({
+                    id: q.id,
+                    idType: typeof q.id,
+                    text: q.question_text || q.text,
+                    order: q.question_order || q.order
+                })) || 'Quiz not loaded yet'
+            });
+            
             // Only process if it's for this quiz
             if (String(data.quizId) === String(quizId)) {
                 console.log('✅ Processing live answer update for matching quiz');
+                console.log('🎯 Processing answer for question:', data.questionId, 'from student:', data.studentId);
                 
                 // Update live answers state
                 setLiveAnswers(prev => {
@@ -77,6 +90,9 @@ const QuizResults = () => {
                     };
                     
                     console.log('📊 Updated live answers:', updated);
+                    console.log('🔍 Questions in updated answers:', Object.keys(updated).map(studentId => 
+                        Object.keys(updated[studentId]).map(qId => ({ studentId, questionId: qId }))
+                    ).flat());
                     return updated;
                 });
 
@@ -121,6 +137,25 @@ const QuizResults = () => {
         
         console.log('📊 Calculating live poll stats from socket data:', answersData);
         
+        // 🚨 CRITICAL DEBUGGING FOR FIRST QUESTION ISSUE
+        console.log('🔍 QUESTION PROCESSING ORDER AND IDS:', (quiz.questions || []).map((q, idx) => ({
+            arrayIndex: idx,
+            questionId: q.id,
+            questionIdType: typeof q.id,
+            questionText: q.question_text || q.text,
+            questionOrder: q.question_order || q.order,
+            isFirstQuestion: idx === 0
+        })));
+        
+        console.log('🔍 AVAILABLE STUDENT ANSWERS BY QUESTION ID:');
+        Object.entries(answersData).forEach(([studentId, studentAnswers]) => {
+            console.log(`Student ${studentId}:`, Object.keys(studentAnswers).map(qId => ({
+                questionId: qId,
+                questionIdType: typeof qId,
+                hasAnswer: !!studentAnswers[qId]
+            })));
+        });
+        
         // 🚨 DETAILED QUIZ QUESTIONS INSPECTION
         console.log('🔍 QUIZ QUESTIONS DETAILED INSPECTION:', (quiz.questions || []).map(q => ({
             id: q?.id,
@@ -138,9 +173,29 @@ const QuizResults = () => {
         })));
         
         const stats = (quiz.questions || []).map(question => {
+            console.log('🔍 PROCESSING QUESTION FOR STATS:', {
+                questionId: question.id,
+                questionIdType: typeof question.id,
+                questionText: question.question_text || question.text,
+                questionOrder: question.question_order || question.order
+            });
+            
             // Count selections for each option from live socket data
             const optionCounts = {};
             let totalSelections = 0;
+            
+            // Check if any student has answered this question
+            const studentsWithAnswers = Object.values(answersData).filter(studentAnswers => 
+                studentAnswers[question.id]
+            );
+            
+            console.log('🔍 STUDENTS WITH ANSWERS FOR QUESTION', question.id, ':', studentsWithAnswers.length, {
+                allStudentAnswers: Object.keys(answersData),
+                studentsAnsweringThisQuestion: studentsWithAnswers.map((_, idx, arr) => 
+                    Object.keys(answersData)[Object.values(answersData).indexOf(arr[idx])]
+                ),
+                answerDetails: studentsWithAnswers.map(ans => ans[question.id])
+            });
             
             // Initialize all options with 0 count - with multiple field name fallbacks
             question.options.forEach(option => {
@@ -165,8 +220,13 @@ const QuizResults = () => {
             Object.values(answersData).forEach(studentAnswers => {
                 const answer = studentAnswers[question.id];
                 if (answer && optionCounts[answer.selectedOptionId]) {
+                    console.log('✅ Found answer for question', question.id, ':', answer);
                     optionCounts[answer.selectedOptionId].selectionCount++;
                     totalSelections++;
+                } else if (answer) {
+                    console.log('❌ Answer found but option not in counts:', answer, 'Available options:', Object.keys(optionCounts));
+                } else {
+                    console.log('ℹ️ No answer for question', question.id, 'in student data:', Object.keys(studentAnswers));
                 }
             });
             
@@ -188,13 +248,16 @@ const QuizResults = () => {
                 final_text: questionText
             });
 
-            return {
+            const result = {
                 questionId: question.id,
                 questionText: questionText,
                 questionOrder: question.question_order || question.order || 0,
                 totalSelections,
                 options: Object.values(optionCounts)
             };
+            
+            console.log('📊 FINAL STATS FOR QUESTION', question.id, ':', result);
+            return result;
         });
         
         console.log('📊 Live poll stats calculated:', stats);
@@ -1101,6 +1164,36 @@ const QuizResults = () => {
                     <small>Real-time responses from students</small>
                 </div>
                 <div className="card-body">
+                    {/* TEMPORARY DEBUG DISPLAY - REMOVE AFTER FIXING */}
+                    <div className="alert alert-info">
+                        <details>
+                            <summary><strong>🔍 DEBUG: Raw Live Answers Data</strong></summary>
+                            <pre className="small mt-2">
+                                {JSON.stringify(liveAnswers, null, 2)}
+                            </pre>
+                        </details>
+                        <details>
+                            <summary><strong>🔍 DEBUG: Quiz Questions Data</strong></summary>
+                            <pre className="small mt-2">
+                                {JSON.stringify((quiz?.questions || []).map(q => ({
+                                    id: q.id,
+                                    text: q.question_text || q.text,
+                                    order: q.question_order || q.order
+                                })), null, 2)}
+                            </pre>
+                        </details>
+                        <details>
+                            <summary><strong>🔍 DEBUG: Calculated Stats</strong></summary>
+                            <pre className="small mt-2">
+                                {JSON.stringify(livePollStats.map(s => ({
+                                    questionId: s.questionId,
+                                    questionText: s.questionText,
+                                    totalSelections: s.totalSelections,
+                                    optionsCount: s.options.length
+                                })), null, 2)}
+                            </pre>
+                        </details>
+                    </div>
                     {livePollStats && livePollStats.length > 0 ? (
                         (livePollStats || []).map(question => (
                             <div key={question.questionId} className="mb-4 pb-3">
