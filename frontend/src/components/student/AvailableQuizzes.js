@@ -30,58 +30,89 @@ const AvailableQuizzes = () => {
         fetchAvailableQuizzes();
     }, [selectedClassId]);
 
-    // Listen for live quiz activation/deactivation events
+    // Listen for live quiz activation/deactivation events (Pure Frontend Socket!)
     useEffect(() => {
-        const handleQuizActivatedLive = (data) => {
-            console.log('� Quiz activated live:', data);
+        const handleQuizStatusChange = (data) => {
+            console.log('🔄 SOCKET-ONLY: Quiz status changed:', data);
             
             // Update the specific quiz in our local state
             setQuizzes(prev => {
                 const updated = prev.map(quiz => 
                     quiz.id === data.quizId 
-                        ? { ...quiz, is_live_active: true }
+                        ? { ...quiz, is_live_active: data.isLiveActive }
                         : quiz
                 );
+                console.log(`📊 Updated quiz ${data.quizId} to ${data.isLiveActive ? 'ACTIVE' : 'PAUSED'}`);
                 return updated;
             });
             
             // Show notification to user
-            alert(`🎉 "${data.quizTitle}" is now available for taking!`);
+            const statusMessage = data.isLiveActive 
+                ? `🎉 "${data.quizTitle}" is now LIVE and available for taking!`
+                : `⏸️ "${data.quizTitle}" has been PAUSED and is no longer available.`;
+            
+            alert(statusMessage);
+            console.log(`📡 PURE FRONTEND: ${statusMessage}`);
         };
 
-        const handleQuizDeactivatedLive = (data) => {
-            console.log('🛑 Quiz deactivated live:', data);
+        // Ensure socket is connected before joining rooms
+        const setupSocketListeners = () => {
+            console.log('📡 Setting up SOCKET-ONLY listeners for quiz status changes (NO DATABASE!)');
             
-            // Update the specific quiz in our local state
-            setQuizzes(prev => {
-                const updated = prev.map(quiz => 
-                    quiz.id === data.quizId 
-                        ? { ...quiz, is_live_active: false }
-                        : quiz
-                );
-                return updated;
+            // Join class rooms for live updates with confirmation
+            if (classes.length > 0) {
+                classes.forEach(classItem => {
+                    socket.emit('join_class_room', classItem.id);
+                    console.log(`📡 Joined class room: ${classItem.id} for socket-only updates`);
+                    
+                    // Double-check: emit join again after a short delay to ensure connection
+                    setTimeout(() => {
+                        socket.emit('join_class_room', classItem.id);
+                        console.log(`📡 Re-confirmed class room join: ${classItem.id}`);
+                    }, 100);
+                });
+            } else {
+                console.log('⚠️ WARNING: No classes found to join rooms for');
+            }
+
+            // Set up status change listener
+            socket.on('quiz_live_status_change', handleQuizStatusChange);
+            
+            // Listen for room join confirmations
+            socket.on('room_joined', (data) => {
+                console.log(`✅ Successfully joined class room ${data.classId} with ${data.roomSize} total clients`);
             });
             
-            // Show notification to user
-            alert(`❌ "${data.quizTitle}" is no longer available for taking.`);
+            // Test pong listener for debugging
+            socket.on('test_pong', (data) => {
+                console.log('🏓 STUDENT: Received pong from backend:', data);
+            });
         };
 
-        // Join class rooms for live updates
-        if (classes.length > 0) {
-            classes.forEach(classItem => {
-                socket.emit('join_class_room', classItem.id);
-                console.log(`📡 Joined class room: ${classItem.id}`);
-            });
+        // If socket is connected, setup immediately
+        if (socket.connected) {
+            console.log('✅ Socket already connected, setting up listeners immediately');
+            setupSocketListeners();
+        } else {
+            console.log('🔌 Socket not connected, forcing connection...');
+            socket.connect();
         }
 
-        console.log('📡 Setting up socket listeners for live quiz events');
-        socket.on('quiz_activated_live', handleQuizActivatedLive);
-        socket.on('quiz_deactivated_live', handleQuizDeactivatedLive);
+        // Also listen for connection events
+        socket.on('connect', () => {
+            console.log('✅ Socket connected in AvailableQuizzes:', socket.id);
+            setupSocketListeners();
+        });
+
+        socket.on('disconnect', () => {
+            console.log('❌ Socket disconnected in AvailableQuizzes');
+        });
 
         return () => {
-            console.log('📡 Cleaning up socket listeners for live quiz events');
-            socket.off('quiz_activated_live', handleQuizActivatedLive);
-            socket.off('quiz_deactivated_live', handleQuizDeactivatedLive);
+            console.log('📡 Cleaning up socket-only listeners for quiz status changes');
+            socket.off('quiz_live_status_change', handleQuizStatusChange);
+            socket.off('connect');
+            socket.off('disconnect');
         };
     }, [classes]);
 
@@ -197,10 +228,34 @@ const AvailableQuizzes = () => {
         <div className="container mt-4">
             <div className="d-flex justify-content-between align-items-center mb-4">
                 <h2>Available Quizzes</h2>
-                <button className="btn btn-primary" onClick={fetchAvailableQuizzes}>
-                    <i className="fas fa-sync-alt me-2"></i>
-                    Refresh
-                </button>
+                <div>
+                    <button className="btn btn-primary me-2" onClick={fetchAvailableQuizzes}>
+                        <i className="fas fa-sync-alt me-2"></i>
+                        Refresh
+                    </button>
+                    <button 
+                        className="btn btn-warning" 
+                        onClick={() => {
+                            console.log('🔍 STUDENT DEBUG INFO:');
+                            console.log('Socket connected:', socket.connected);
+                            console.log('Socket ID:', socket.id);
+                            console.log('Available classes:', classes);
+                            console.log('Current quizzes:', quizzes);
+                            console.log('User info:', user);
+                            
+                            // Test class room joining
+                            if (classes.length > 0) {
+                                classes.forEach(classItem => {
+                                    console.log(`📡 Re-joining class room: ${classItem.id}`);
+                                    socket.emit('join_class_room', classItem.id);
+                                });
+                            }
+                        }}
+                    >
+                        <i className="fas fa-bug me-2"></i>
+                        Debug Socket
+                    </button>
+                </div>
             </div>
 
             {/* Class Filter */}
@@ -258,6 +313,7 @@ const AvailableQuizzes = () => {
                                                         : 'fa-pause-circle'
                                                 } me-1`}></i>
                                                 {quiz.is_live_active ? 'Live' : 'Paused'}
+                                                <small className="ms-1" title="Socket-only status, no database">⚡</small>
                                             </span>
                                         </div>
                                     </div>
@@ -321,8 +377,8 @@ const AvailableQuizzes = () => {
                                             <div className="alert alert-warning mb-0 py-2">
                                                 <small>
                                                     <i className="fas fa-pause-circle me-1"></i>
-                                                    <strong>Quiz is paused by professor.</strong> 
-                                                    <br />Please wait for the professor to activate it.
+                                                    <strong>Quiz is paused by professor (Socket-Only ⚡).</strong> 
+                                                    <br />Status updates in real-time - no database involved!
                                                 </small>
                                             </div>
                                         )}

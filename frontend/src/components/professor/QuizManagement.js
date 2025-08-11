@@ -177,10 +177,8 @@ const QuizManagement = () => {
       const isCurrentlyActive = Boolean(currentStatus);
       const newStatus = !isCurrentlyActive;
       
-      console.log(`🔄 Live toggling quiz ${quizId}`);
-      console.log(`📊 Frontend current status: ${currentStatus}`);
-      console.log(`� Database current status: ${isCurrentlyActive}`);
-      console.log(`📊 New status will be: ${newStatus}`);
+      console.log(`🔄 PURE FRONTEND: Live toggling quiz ${quizId}`);
+      console.log(`📊 Current status: ${currentStatus} → New status: ${newStatus}`);
       
       // Get quiz details for socket broadcast
       const quiz = quizzes.find(q => q.id === quizId);
@@ -189,56 +187,40 @@ const QuizManagement = () => {
         return;
       }
 
-      // Step 1: Live toggle via socket (no DB update yet)
-      const response = await api.patch(`/quizzes/${quizId}/live-toggle`, {
-        isLiveActive: newStatus
+      // 🔍 DEBUG: Check class ID details
+      console.log(`🔍 PROFESSOR DEBUG: Quiz details:`, {
+        id: quiz.id,
+        title: quiz.title,
+        class_id: quiz.class_id,
+        class_name: quiz.class_name
       });
-      
-      console.log(`📡 Live toggle response:`, response.data);
-      
-      // Update the quiz in local state immediately for better UX
+      console.log(`🔍 PROFESSOR DEBUG: Broadcasting to class_${quiz.class_id}`);
+      console.log(`🔍 PROFESSOR DEBUG: Student should be in class room ${quiz.class_id} to receive this`);
+
+      // Update the quiz in local state immediately (Pure Frontend!)
       setQuizzes(prev => prev.map(q => 
         q.id === quizId 
           ? { ...q, is_live_active: newStatus }
           : q
       ));
 
-      // Step 2: Broadcast live via socket to students
-      const eventType = newStatus ? 'live_quiz_activate' : 'live_quiz_deactivate';
-      socket.emit(eventType, {
+      // Broadcast via socket to students (NO API CALLS!)
+      socket.emit('quiz_live_status_change', {
         quizId: quizId,
         quizTitle: quiz.title,
         classId: quiz.class_id,
+        isLiveActive: newStatus,
+        professorId: user.id,
         professorName: user.full_name || user.email,
         timestamp: Date.now()
       });
 
-      console.log(`📡 Live ${newStatus ? 'activation' : 'deactivation'} broadcasted via socket`);
-
-      // Step 3: Confirm in database after a short delay
-      setTimeout(async () => {
-        try {
-          await api.patch(`/quizzes/${quizId}/confirm-toggle`, {
-            isLiveActive: newStatus
-          });
-          console.log(`💾 Quiz ${quizId} status confirmed in database`);
-          
-          // Wait a bit more for database to be fully updated
-          setTimeout(async () => {
-            console.log('🔄 Refreshing quiz list to sync with database...');
-            await fetchQuizzes();
-          }, 500);
-          
-        } catch (err) {
-          console.error('⚠️ Failed to confirm quiz status in database:', err);
-        }
-      }, 1000);
-
-      console.log(`✅ Quiz ${quizId} ${newStatus ? 'activated' : 'deactivated'} live successfully`);
+      console.log(`📡 SOCKET-ONLY: Quiz ${quizId} ${newStatus ? 'activated' : 'deactivated'} via socket broadcast`);
+      console.log(`� NO DATABASE CALLS - Pure frontend socket communication!`);
       
     } catch (err) {
       console.error('❌ Failed to toggle quiz status:', err);
-      setError(err.response?.data?.message || 'Failed to update quiz status');
+      setError(err.message || 'Failed to update quiz status');
     }
   };
 
@@ -444,6 +426,61 @@ const QuizManagement = () => {
         </div>
       )}
 
+      {/* Socket-Only Active/Pause Info */}
+      <div className="alert alert-success d-flex align-items-center mb-3">
+        <i className="fas fa-bolt me-3 fs-4"></i>
+        <div>
+          <strong>⚡ Socket-Only Active/Pause System:</strong> Quiz activation/pause now works with <strong>zero database calls</strong>! 
+          Status changes are broadcasted instantly via Socket.IO, just like your live poll answers. 
+          <small className="d-block mt-1 text-muted">
+            Status resets on page refresh - perfect for live session management!
+          </small>
+        </div>
+        <button 
+          className="btn btn-warning ms-auto" 
+          onClick={() => {
+            console.log('🔍 PROFESSOR DEBUG INFO:');
+            console.log('Socket connected:', socket.connected);
+            console.log('Socket ID:', socket.id);
+            console.log('Total quizzes:', quizzes.length);
+            
+            // Show each quiz individually for better visibility
+            quizzes.forEach((quiz, index) => {
+              console.log(`Quiz ${index + 1}: ID=${quiz.id}, Title="${quiz.title}", Class_ID=${quiz.class_id}, Class_Name="${quiz.class_name}"`);
+            });
+            
+            // Find Quiz 16 specifically
+            const quiz16 = quizzes.find(q => q.id === 16);
+            if (quiz16) {
+              console.log(`🎯 QUIZ 16 DETAILS: Class_ID=${quiz16.class_id}, Should broadcast to class_${quiz16.class_id}`);
+              console.log(`🔍 ISSUE CHECK: Student is in class_7, but quiz 16 is in class_${quiz16.class_id}`);
+            } else {
+              console.log('❌ Quiz 16 not found in current quizzes');
+            }
+            
+            // Test manual emission to class 7
+            console.log('🧪 TESTING: Manual emission to class_7');
+            socket.emit('quiz_live_status_change', {
+              quizId: 16,
+              quizTitle: "Manual Test Quiz",
+              classId: 7,
+              isLiveActive: true,
+              professorId: user.id,
+              professorName: user.full_name || user.email,
+              timestamp: Date.now()
+            });
+            console.log('🧪 Manual test sent - check student side!');
+            
+            // Also test a simple ping
+            console.log('🏓 TESTING: Simple ping to backend');
+            socket.emit('test_ping', { message: 'Hello from professor', timestamp: Date.now() });
+          }}
+        >
+          <i className="fas fa-bug me-2"></i>
+          Debug Professor
+        </button>
+      </div>
+
       {quizzes.length === 0 ? (
         <div className="alert alert-info">
           <i className="fas fa-info-circle me-2"></i>
@@ -507,7 +544,7 @@ const QuizManagement = () => {
                                 : 'btn-outline-success'
                             }`}
                             onClick={() => handleToggleQuizLiveActive(quiz.id, quiz.is_live_active)}
-                            title={`Click to ${Boolean(quiz.is_live_active) ? 'pause' : 'activate'} quiz for students`}
+                            title={`Socket-Only: Click to ${Boolean(quiz.is_live_active) ? 'pause' : 'activate'} quiz for students (No Database!)`}
                           >
                             <i className={`fas ${
                               Boolean(quiz.is_live_active) 
@@ -515,6 +552,7 @@ const QuizManagement = () => {
                                 : 'fa-play'
                             } me-1`}></i>
                             {Boolean(quiz.is_live_active) ? 'Pause' : 'Activate'}
+                            <small className="ms-1" title="Socket-only, no database">⚡</small>
                           </button>
                         </div>
                       </td>

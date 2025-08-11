@@ -85,34 +85,55 @@ class Server {
                 });
             });
 
-            // Handle live quiz activation (no DB storage initially)
-            socket.on('live_quiz_activate', (data) => {
-                console.log('📡 Live quiz activation:', data);
+            // Handle quiz live status changes (Pure Frontend Socket-Only!)
+            socket.on('quiz_live_status_change', (data) => {
+                console.log('📡 SOCKET-ONLY: Quiz status change relay (NO DATABASE!):', data);
+                
+                // Get all sockets in the class room to verify broadcasting
+                const classRoom = `class_${data.classId}`;
+                const socketsInRoom = this.io.sockets.adapter.rooms.get(classRoom);
+                const roomSize = socketsInRoom ? socketsInRoom.size : 0;
+                
+                console.log(`🔍 ROOM DEBUG: Broadcasting to ${classRoom}, ${roomSize} clients in room`);
+                
+                if (roomSize === 0) {
+                    console.log('⚠️ WARNING: No students in class room ' + classRoom + '! Students may not have joined properly.');
+                }
+                
                 // Broadcast to all students in the class
-                socket.to(`class_${data.classId}`).emit('quiz_activated_live', {
+                this.io.to(classRoom).emit('quiz_live_status_change', {
                     quizId: data.quizId,
                     quizTitle: data.quizTitle,
+                    isLiveActive: data.isLiveActive,
+                    professorId: data.professorId,
                     professorName: data.professorName,
                     timestamp: data.timestamp
                 });
+                
+                console.log(`📡 PURE FRONTEND: Quiz ${data.quizId} status broadcasted to ${classRoom} - ${data.isLiveActive ? 'ACTIVATED' : 'PAUSED'}`);
+                console.log(`🚀 NO DATABASE WRITES - Pure socket communication!`);
+                console.log(`📊 Broadcast sent to ${roomSize} students in ${classRoom}`);
             });
-
-            // Handle live quiz deactivation (no DB storage initially)
-            socket.on('live_quiz_deactivate', (data) => {
-                console.log('📡 Live quiz deactivation:', data);
-                // Broadcast to all students in the class
-                socket.to(`class_${data.classId}`).emit('quiz_deactivated_live', {
-                    quizId: data.quizId,
-                    quizTitle: data.quizTitle,
-                    professorName: data.professorName,
-                    timestamp: data.timestamp
-                });
+            
+            // Test ping handler for debugging
+            socket.on('test_ping', (data) => {
+                console.log('🏓 BACKEND: Received test ping:', data);
+                socket.emit('test_pong', { message: 'Pong from backend', originalMessage: data.message, timestamp: Date.now() });
             });
 
             // Join class room for students to receive quiz activation updates
             socket.on('join_class_room', (classId) => {
                 socket.join(`class_${classId}`);
                 console.log(`📡 Socket ${socket.id} joined class room class_${classId}`);
+                
+                // Verify the join was successful
+                const classRoom = `class_${classId}`;
+                const socketsInRoom = this.io.sockets.adapter.rooms.get(classRoom);
+                const roomSize = socketsInRoom ? socketsInRoom.size : 0;
+                console.log(`✅ Room ${classRoom} now has ${roomSize} clients`);
+                
+                // Send confirmation back to the client
+                socket.emit('room_joined', { classId: classId, roomSize: roomSize });
             });
 
             // Join quiz room for live answer updates

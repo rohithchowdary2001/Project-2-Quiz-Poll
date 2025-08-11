@@ -120,17 +120,41 @@ const QuizResults = () => {
         
         console.log('📊 Calculating live poll stats from socket data:', answersData);
         
+        // 🚨 DETAILED QUIZ QUESTIONS INSPECTION
+        console.log('🔍 QUIZ QUESTIONS DETAILED INSPECTION:', quiz.questions.map(q => ({
+            id: q?.id,
+            question_text: q?.question_text,
+            text: q?.text,
+            question_order: q?.question_order,
+            order: q?.order,
+            options: q?.options?.map(opt => ({
+                id: opt?.id,
+                option_text: opt?.option_text,
+                text: opt?.text,
+                is_correct: opt?.is_correct,
+                correct: opt?.correct
+            }))
+        })));
+        
         const stats = quiz.questions.map(question => {
             // Count selections for each option from live socket data
             const optionCounts = {};
             let totalSelections = 0;
             
-            // Initialize all options with 0 count
+            // Initialize all options with 0 count - with multiple field name fallbacks
             question.options.forEach(option => {
+                const optionText = option.option_text || option.text || `Option ${option.id}`;
+                console.log('🔍 Option text resolution:', {
+                    optionId: option.id,
+                    option_text: option.option_text,
+                    text: option.text,
+                    final_text: optionText
+                });
+                
                 optionCounts[option.id] = {
                     optionId: option.id,
-                    optionText: option.option_text,
-                    isCorrect: option.is_correct,
+                    optionText: optionText,
+                    isCorrect: option.is_correct || option.correct || false,
                     selectionCount: 0,
                     percentage: 0
                 };
@@ -152,10 +176,21 @@ const QuizResults = () => {
                     : 0;
             });
             
+            // Get question text with multiple field name fallbacks
+            const questionText = question.question_text || question.text || `Question ${question.question_order || question.order || question.id}`;
+            console.log('🔍 Question text resolution:', {
+                questionId: question.id,
+                question_text: question.question_text,
+                text: question.text,
+                question_order: question.question_order,
+                order: question.order,
+                final_text: questionText
+            });
+
             return {
                 questionId: question.id,
-                questionText: question.question_text,
-                questionOrder: question.question_order,
+                questionText: questionText,
+                questionOrder: question.question_order || question.order || 0,
                 totalSelections,
                 options: Object.values(optionCounts)
             };
@@ -215,7 +250,31 @@ const QuizResults = () => {
             console.log('📊 Quiz data received:', quizResponse.data.quiz);
             console.log('📊 Results data received:', resultsResponse.data);
             
-            setQuiz(quizResponse.data.quiz);
+            const quizData = quizResponse.data.quiz;
+            
+            // 🚨 DETAILED QUIZ DATA INSPECTION
+            console.log('🔍 DETAILED QUIZ STRUCTURE INSPECTION:', {
+                id: quizData?.id,
+                title: quizData?.title,
+                questionsCount: quizData?.questions?.length,
+                questionsData: quizData?.questions?.map(q => ({
+                    id: q?.id,
+                    question_text: q?.question_text,
+                    text: q?.text, // Alternative field name
+                    question_order: q?.question_order,
+                    order: q?.order, // Alternative field name
+                    optionsCount: q?.options?.length,
+                    optionsData: q?.options?.map(opt => ({
+                        id: opt?.id,
+                        option_text: opt?.option_text,
+                        text: opt?.text, // Alternative field name
+                        is_correct: opt?.is_correct,
+                        correct: opt?.correct // Alternative field name
+                    }))
+                }))
+            });
+            
+            setQuiz(quizData);
             
             // Set completed submissions from database (students who finished the quiz)
             const results = resultsResponse.data.results || [];
@@ -570,86 +629,65 @@ const QuizResults = () => {
                 </div>
             )}
 
-            {/* 🔥 LIVE POLL RESULTS - Socket Only (No Database!) */}
-            {livePollStats.length > 0 && (
-                <div className="card mb-4">
-                    <div className="card-header bg-warning text-dark">
-                        <h5 className="mb-0">
-                            <i className="fas fa-poll me-2"></i>
-                            Live Poll Results (Real-Time Socket Data)
-                        </h5>
-                        <small>Updated instantly as students select answers - No database calls!</small>
-                    </div>
-                    <div className="card-body">
-                        {livePollStats.map(question => (
-                            <div key={question.questionId} className="mb-4">
+            {/* 🎯 SIMPLIFIED LIVE POLLING */}
+            <div className="card mb-4">
+                <div className="card-header bg-primary text-white">
+                    <h5 className="mb-0">
+                        <i className="fas fa-poll me-2"></i>
+                        Live Quiz Polling
+                    </h5>
+                    <small>Real-time responses from students</small>
+                </div>
+                <div className="card-body">
+                    {livePollStats.length > 0 ? (
+                        livePollStats.map(question => (
+                            <div key={question.questionId} className="mb-4 pb-3">
                                 <div className="d-flex justify-content-between align-items-center mb-3">
-                                    <h6 className="fw-bold mb-0">
-                                        Question {question.questionOrder}: {question.questionText}
+                                    <h6 className="fw-bold mb-0 text-primary">
+                                        {question.questionText || `Question ${question.questionOrder}`}
                                     </h6>
-                                    <div className="badge bg-info">
-                                        <i className="fas fa-users me-1"></i>
-                                        {question.totalSelections} live responses
-                                    </div>
+                                    <span className="badge bg-info fs-6">
+                                        {question.totalSelections} responses
+                                    </span>
                                 </div>
-                                <div className="row">
-                                    {question.options.map(option => (
-                                        <div key={`live-${question.questionId}-${option.optionId}`} className="col-md-6 mb-3">
-                                            <div className={`card ${option.isCorrect ? 'border-success shadow-sm' : 'border-light'} h-100`}>
-                                                <div className="card-body py-3">
-                                                    <div className="d-flex justify-content-between align-items-center mb-2">
-                                                        <div className="flex-grow-1">
-                                                            <div className="fw-bold">
-                                                                {option.isCorrect && <i className="fas fa-check-circle text-success me-2"></i>}
-                                                                {option.optionText}
-                                                            </div>
-                                                        </div>
-                                                        <div className="text-end">
-                                                            <div className="fs-5 fw-bold text-primary">{option.selectionCount}</div>
-                                                            <small className="text-muted">votes</small>
-                                                        </div>
-                                                    </div>
-                                                    <div className="progress mb-2" style={{ height: '8px' }}>
-                                                        <div 
-                                                            className={`progress-bar ${option.isCorrect ? 'bg-success' : 'bg-primary'} progress-bar-striped progress-bar-animated`}
-                                                            style={{ 
-                                                                width: `${option.percentage}%`,
-                                                                transition: 'width 0.6s ease-in-out'
-                                                            }}
-                                                        ></div>
-                                                    </div>
-                                                    <div className="d-flex justify-content-between align-items-center">
-                                                        <small className="text-muted">
-                                                            {option.isCorrect ? (
-                                                                <span className="text-success fw-bold">
-                                                                    <i className="fas fa-star me-1"></i>
-                                                                    Correct Answer
-                                                                </span>
-                                                            ) : (
-                                                                'Option'
-                                                            )}
-                                                        </small>
-                                                        <span className={`badge ${option.percentage > 0 ? 'bg-primary' : 'bg-light text-dark'}`}>
-                                                            {option.percentage}%
+                                
+                                <div className="row g-2">
+                                    {question.options.map((option, idx) => (
+                                        <div key={`opt-${question.questionId}-${option.optionId}`} className="col-md-6">
+                                            <div className={`p-3 rounded ${option.selectionCount > 0 ? 'bg-success bg-opacity-10 border border-success' : 'bg-light'}`}>
+                                                <div className="d-flex justify-content-between align-items-center">
+                                                    <div className="flex-grow-1">
+                                                        <span className={`me-2 ${option.selectionCount > 0 ? 'text-success' : 'text-muted'}`}>
+                                                            {option.selectionCount > 0 ? '✅' : '❌'}
                                                         </span>
+                                                        <span className="fw-medium">
+                                                            {option.optionText || `Option ${String.fromCharCode(65 + idx)}`}
+                                                        </span>
+                                                        {option.isCorrect && (
+                                                            <i className="fas fa-star text-warning ms-2" title="Correct Answer"></i>
+                                                        )}
+                                                    </div>
+                                                    <div className="text-end">
+                                                        <span className="fw-bold text-primary">{option.selectionCount}</span>
+                                                        <small className="text-muted ms-1">({option.percentage}%)</small>
                                                     </div>
                                                 </div>
                                             </div>
                                         </div>
                                     ))}
                                 </div>
+                                {question !== livePollStats[livePollStats.length - 1] && <hr className="mt-4" />}
                             </div>
-                        ))}
-                        <div className="alert alert-success d-flex align-items-center">
-                            <i className="fas fa-bolt me-3 fs-4"></i>
-                            <div>
-                                <strong>Live Polling System:</strong> This data updates in real-time via Socket.IO as students make their selections. 
-                                <strong>No database queries</strong> are made for these live updates!
-                            </div>
+                        ))
+                    ) : (
+                        <div className="text-center text-muted py-5">
+                            <i className="fas fa-users fa-3x mb-3 opacity-25"></i>
+                            <h6>Waiting for student responses...</h6>
+                            <p className="mb-0">Live data will appear here when students start answering questions</p>
                         </div>
-                    </div>
+                    )}
                 </div>
-            )}
+            </div>
 
             {/* Message when no live data yet but we have database results */}
             {livePollStats.length === 0 && Object.keys(liveStudents).length === 0 && (

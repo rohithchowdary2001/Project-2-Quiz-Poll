@@ -148,7 +148,20 @@ const QuizTaking = () => {
             console.log('Sending final answer via socket on time expiry for question:', currentQuestion.id, 'answer:', answer);
             
             // Find the selected option details for socket transmission
-            const selectedOption = currentQuestion?.options?.find(opt => opt.id === answer);
+            const selectedOption = currentQuestion?.options?.find(opt => 
+                opt.id === answer || opt.id === parseInt(answer) || opt.id === String(answer)
+            );
+            
+            // Get option text from multiple possible sources
+            let optionText = 'Unknown option';
+            if (selectedOption) {
+                optionText = selectedOption.option_text || selectedOption.text || `Option ${answer}`;
+            }
+            
+            console.log('🔍 DEBUG: Finding option for answer:', answer, 'Type:', typeof answer);
+            console.log('🔍 DEBUG: Current question options:', currentQuestion?.options?.map(opt => ({id: opt.id, type: typeof opt.id, text: opt.option_text})));
+            console.log('🔍 DEBUG: Selected option found:', selectedOption);
+            console.log('🔍 DEBUG: Final option text:', optionText);
             
             // Emit live answer update via socket (no DB storage)
             socket.emit('live_answer_update', {
@@ -157,7 +170,8 @@ const QuizTaking = () => {
                 quizId: parseInt(quizId),
                 questionId: currentQuestion.id,
                 selectedOptionId: answer,
-                optionText: selectedOption?.option_text || 'Unknown option',
+                optionText: optionText,
+                questionText: currentQuestion?.question_text || `Question ${currentQuestion.id}`,
                 timestamp: Date.now(),
                 isTimeExpired: true
             });
@@ -193,7 +207,34 @@ const QuizTaking = () => {
         
         // Find the selected option details for socket transmission
         const currentQuestion = quiz.questions.find(q => q.id === questionId);
-        const selectedOption = currentQuestion?.options?.find(opt => opt.id === optionId);
+        const selectedOption = currentQuestion?.options?.find(opt => 
+            opt.id === optionId || opt.id === parseInt(optionId) || opt.id === String(optionId)
+        );
+        
+        // Get option text from multiple possible sources
+        let optionText = 'Unknown option';
+        if (selectedOption) {
+            optionText = selectedOption.option_text || selectedOption.text || `Option ${optionId}`;
+        } else {
+            // Try to get option text from DOM as fallback
+            const optionElement = document.querySelector(`input[value="${optionId}"]`);
+            if (optionElement) {
+                const labelElement = optionElement.closest('label') || optionElement.parentElement?.querySelector('label');
+                if (labelElement) {
+                    optionText = labelElement.textContent?.trim() || `Option ${optionId}`;
+                }
+            }
+        }
+        
+        console.log('🔍 DEBUG handleAnswerSelect: Finding option for questionId:', questionId, 'optionId:', optionId, 'Type:', typeof optionId);
+        console.log('🔍 DEBUG handleAnswerSelect: Current question:', {
+            id: currentQuestion?.id,
+            text: currentQuestion?.question_text,
+            optionsCount: currentQuestion?.options?.length
+        });
+        console.log('🔍 DEBUG handleAnswerSelect: Current question options:', currentQuestion?.options?.map(opt => ({id: opt.id, type: typeof opt.id, text: opt.option_text})));
+        console.log('🔍 DEBUG handleAnswerSelect: Selected option found:', selectedOption);
+        console.log('🔍 DEBUG handleAnswerSelect: Final option text:', optionText);
         
         // Emit live answer update via socket (no DB storage)
         socket.emit('live_answer_update', {
@@ -202,11 +243,17 @@ const QuizTaking = () => {
             quizId: parseInt(quizId),
             questionId: questionId,
             selectedOptionId: optionId,
-            optionText: selectedOption?.option_text || 'Unknown option',
+            optionText: optionText,
+            questionText: currentQuestion?.question_text || `Question ${questionId}`,
             timestamp: Date.now()
         });
         
-        console.log('📡 Live answer update sent via socket');
+        console.log('📡 Live answer update sent via socket - IMMEDIATE:', {
+            studentId: user.id,
+            questionId: questionId,
+            selectedOptionId: optionId,
+            optionText: selectedOption?.option_text || 'Unknown option'
+        });
     };
 
     const handleNextQuestion = () => {
@@ -233,7 +280,15 @@ const QuizTaking = () => {
             console.log('Sending answer via socket when moving to next question:', currentQuestion.id, 'answer:', answer);
             
             // Find the selected option details for socket transmission
-            const selectedOption = currentQuestion?.options?.find(opt => opt.id === answer);
+            const selectedOption = currentQuestion?.options?.find(opt => 
+                opt.id === answer || opt.id === parseInt(answer) || opt.id === String(answer)
+            );
+            
+            // Get option text from multiple possible sources
+            let optionText = 'Unknown option';
+            if (selectedOption) {
+                optionText = selectedOption.option_text || selectedOption.text || `Option ${answer}`;
+            }
             
             // Emit live answer update via socket (no DB storage)
             socket.emit('live_answer_update', {
@@ -242,11 +297,18 @@ const QuizTaking = () => {
                 quizId: parseInt(quizId),
                 questionId: currentQuestion.id,
                 selectedOptionId: answer,
-                optionText: selectedOption?.option_text || 'Unknown option',
+                optionText: optionText,
+                questionText: currentQuestion?.question_text || `Question ${currentQuestion.id}`,
                 timestamp: Date.now()
             });
 
             console.log('📡 Answer sent via socket when moving to next question - NO DATABASE CALL!');
+            console.log('📡 NAVIGATION EMISSION:', {
+                studentId: user.id,
+                questionId: currentQuestion.id,
+                selectedOptionId: answer,
+                optionText: optionText
+            });
         } else {
             console.log('No answer to send for question:', currentQuestion.id, 'Answer value:', answer, 'Type:', typeof answer);
         }
