@@ -659,12 +659,64 @@ class QuizController {
         [submission.id]
       );
 
+      // Also get all questions and options for this quiz to provide complete structure
+      const allQuestions = await database.query(
+        `
+          SELECT 
+            q.id as question_id,
+            q.question_text,
+            q.question_order,
+            ao.id as option_id,
+            ao.option_text,
+            ao.is_correct,
+            ao.option_order
+          FROM questions q
+          LEFT JOIN answer_options ao ON q.id = ao.question_id
+          WHERE q.quiz_id = ?
+          ORDER BY q.question_order, ao.option_order
+        `,
+        [quiz.id]
+      );
+
+      // Group questions with their options
+      const questionsMap = {};
+      allQuestions.forEach(row => {
+        if (!questionsMap[row.question_id]) {
+          questionsMap[row.question_id] = {
+            id: row.question_id,
+            question_text: row.question_text,
+            question_order: row.question_order,
+            options: []
+          };
+        }
+        if (row.option_id) {
+          questionsMap[row.question_id].options.push({
+            id: row.option_id,
+            option_text: row.option_text,
+            is_correct: row.is_correct,
+            option_order: row.option_order
+          });
+        }
+      });
+
+      const questions = Object.values(questionsMap).sort((a, b) => a.question_order - b.question_order);
+
+      console.log('🔍 DEBUG - Student answers query result:', answers);
+      console.log('🔍 DEBUG - All questions raw result:', allQuestions.slice(0, 3));
+      console.log('🔍 DEBUG - Processed questions:', questions.map(q => ({
+        id: q.id,
+        text: q.question_text,
+        optionsCount: q.options.length,
+        firstOption: q.options[0]
+      })));
+
       res.json({
         student: {
           id: studentId,
           submission_id: submission.id,
         },
         answers: answers,
+        questions: questions, // Include complete question structure
       });
     } catch (error) {
       next(error);

@@ -296,9 +296,38 @@ const QuizResults = () => {
             
             console.log('📊 Processed results:', processedResults);
             
+            // Transform answerStats from backend format to frontend format
+            const transformedAnswerStats = {};
+            answerStatsData.forEach(stat => {
+                const questionId = stat.question_id;
+                if (!transformedAnswerStats[questionId]) {
+                    transformedAnswerStats[questionId] = {
+                        questionId: questionId,
+                        questionText: stat.question_text,
+                        questionOrder: stat.question_order,
+                        options: []
+                    };
+                }
+                
+                if (stat.option_id) {
+                    transformedAnswerStats[questionId].options.push({
+                        optionId: stat.option_id,
+                        optionText: stat.option_text,
+                        isCorrect: stat.is_correct,
+                        selectionCount: stat.selection_count || 0,
+                        percentage: stat.percentage || 0
+                    });
+                }
+            });
+            
+            const processedAnswerStats = Object.values(transformedAnswerStats)
+                .sort((a, b) => a.questionOrder - b.questionOrder);
+            
+            console.log('📊 Transformed answerStats:', processedAnswerStats);
+            
             setQuiz(quizData);
             setResults(processedResults);
-            setAnswerStats(answerStatsData);
+            setAnswerStats(processedAnswerStats);
             
             console.log('📊 Quiz loaded with', results.length, 'completed submissions');
             console.log('🔴 Live socket data will show students currently taking the quiz');
@@ -460,23 +489,111 @@ const QuizResults = () => {
     };
 
     // Component to show detailed student answers
-    const StudentAnswerDetails = ({ student, quiz }) => {
+    const StudentAnswerDetails = ({ student, quiz, answerStats }) => {
         const [answers, setAnswers] = useState([]);
         const [loading, setLoading] = useState(true);
+        const [allQuestions, setAllQuestions] = useState([]);
 
         useEffect(() => {
             const fetchAnswers = async () => {
                 console.log('🔍 Fetching answers for student:', student.student_id, student.student_name);
-                console.log('🔍 Quiz data available:', !!quiz, quiz?.questions?.length, 'questions');
                 
                 setLoading(true);
-                const studentAnswers = await getStudentAnswers(student.student_id);
-                console.log('📊 Received student answers:', studentAnswers);
-                setAnswers(studentAnswers);
+                try {
+                    // Get student answers from API
+                    const response = await api.get(`/quizzes/${quizId}/student/${student.student_id}/answers`);
+                    console.log('📊 Full API response:', response.data);
+                    
+                    const studentAnswers = response.data.answers || [];
+                    const apiQuestions = response.data.questions || [];
+                    
+                    console.log('📊 Received student answers:', studentAnswers);
+                    console.log('� Received questions from API:', apiQuestions);
+                    
+                    setAnswers(studentAnswers);
+                    
+                    // Use the answerStats data since it has complete question and option information
+                    // This is the same data used in the "Completed Quiz Statistics" section that works perfectly
+                    if (answerStats && answerStats.length > 0) {
+                        console.log('📋 Using answerStats data (same as statistics section)');
+                        console.log('📋 AnswerStats sample:', answerStats[0]);
+                        setAllQuestions(answerStats);
+                        
+                    } else if (studentAnswers && studentAnswers.length > 0) {
+                        console.log('📋 Building complete question structure from student answers data');
+                        
+                        // Group answers by question and get all options for each question
+                        const questionsFromAnswers = [];
+                        const processedQuestions = new Set();
+                        
+                        for (const answer of studentAnswers) {
+                            if (!processedQuestions.has(answer.question_id)) {
+                                // For each question, we need to get all its options from the quiz structure
+                                // But since we have the answer data, we can at least show the selected option properly
+                                const questionStructure = {
+                                    id: answer.question_id,
+                                    question_text: answer.question_text,
+                                    question_order: answer.question_order,
+                                    options: [] // We'll try to get all options from quiz structure
+                                };
+                                
+                                // Try to get all options from quiz structure if available
+                                if (quiz && quiz.questions) {
+                                    const quizQuestion = quiz.questions.find(q => 
+                                        parseInt(q.id) === parseInt(answer.question_id)
+                                    );
+                                    if (quizQuestion && quizQuestion.options) {
+                                        questionStructure.options = quizQuestion.options.map(option => ({
+                                            id: option.id,
+                                            option_text: option.option_text || (
+                                                // If this is the selected option, use the text from student answer
+                                                parseInt(option.id) === parseInt(answer.selected_option_id) 
+                                                    ? answer.option_text 
+                                                    : `Option ${option.id}`
+                                            ),
+                                            is_correct: option.is_correct,
+                                            option_order: option.option_order || 1
+                                        }));
+                                    }
+                                }
+                                
+                                // If we still don't have complete options, create structure with just the selected option
+                                if (questionStructure.options.length === 0 || questionStructure.options.every(opt => !opt.option_text || opt.option_text.startsWith('Option '))) {
+                                    questionStructure.options = [{
+                                        id: answer.selected_option_id,
+                                        option_text: answer.option_text,
+                                        is_correct: !!answer.is_correct,
+                                        option_order: 1
+                                    }];
+                                    console.log(`📋 Using minimal option structure for question ${answer.question_id}`);
+                                }
+                                
+                                questionsFromAnswers.push(questionStructure);
+                                processedQuestions.add(answer.question_id);
+                            }
+                        }
+                        
+                        questionsFromAnswers.sort((a, b) => a.question_order - b.question_order);
+                        console.log('📋 Built questions from answers:', questionsFromAnswers);
+                        setAllQuestions(questionsFromAnswers);
+                        
+                    } else if (quiz && quiz.questions && quiz.questions.length > 0) {
+                        console.log('📋 Fallback: Using quiz structure from props');
+                        setAllQuestions(quiz.questions);
+                    } else if (apiQuestions && apiQuestions.length > 0) {
+                        console.log('📋 Fallback: Using question structure from API');
+                        setAllQuestions(apiQuestions);
+                    } else {
+                        console.log('📋 No question structure available');
+                        setAllQuestions([]);
+                    }
+                } catch (error) {
+                    console.error('❌ Error fetching student answers:', error);
+                }
                 setLoading(false);
             };
             fetchAnswers();
-        }, [student.student_id]);
+        }, [student.student_id, quiz]);
 
         if (loading) {
             return (
@@ -492,8 +609,8 @@ const QuizResults = () => {
         }
 
         console.log('🎯 Rendering answers for:', student.student_name);
-        console.log('🎯 Quiz questions:', quiz?.questions?.map(q => ({ id: q.id, text: q.question_text })));
-        console.log('🎯 Student answers:', answers);
+        console.log('🎯 Student answers from API:', answers);
+        console.log('🎯 All questions structure:', allQuestions);
 
         return (
             <tr>
@@ -503,84 +620,114 @@ const QuizResults = () => {
                             <i className="fas fa-list me-2"></i>
                             Detailed Answers for {student.student_name}
                         </h6>
-                        {quiz && quiz.questions ? (
+                        {allQuestions && allQuestions.length > 0 ? (
                             <div className="row">
-                                {(quiz.questions || []).map((question, qIdx) => {
+                                {allQuestions.map((question, qIdx) => {
                                     const studentAnswer = answers.find(a => 
-                                        a.question_id === question.id || 
-                                        parseInt(a.question_id) === parseInt(question.id)
+                                        parseInt(a.question_id) === parseInt(question.questionId || question.id)
                                     );
                                     
-                                    console.log(`🎯 Q${qIdx + 1} (ID: ${question.id}):`, {
-                                        question: question.question_text,
+                                    console.log(`🎯 Q${qIdx + 1} DETAILED DEBUG:`, {
+                                        questionId: question.questionId || question.id,
+                                        questionText: question.questionText || question.question_text,
+                                        questionObject: question,
                                         studentAnswer,
-                                        answerFound: !!studentAnswer
+                                        hasAnswer: !!studentAnswer,
+                                        optionsCount: question.options?.length || 0,
+                                        firstOptionSample: question.options?.[0]
                                     });
                                     
-                                    const selectedOption = question.options?.find(opt => 
-                                        opt.id === studentAnswer?.selected_option_id || 
-                                        parseInt(opt.id) === parseInt(studentAnswer?.selected_option_id)
-                                    );
-                                    const correctOption = question.options?.find(opt => opt.is_correct);
-                                    const isCorrect = selectedOption && selectedOption.is_correct;
-                                    
                                     return (
-                                        <div key={question.id} className="col-lg-6 mb-4">
-                                            <div className={`card h-100 ${isCorrect ? 'border-success' : (selectedOption ? 'border-danger' : 'border-secondary')}`}>
+                                        <div key={question.questionId || question.id} className="col-lg-6 mb-4">
+                                            <div className={`card h-100 ${studentAnswer?.is_correct ? 'border-success' : (studentAnswer ? 'border-danger' : 'border-secondary')}`}>
                                                 <div className="card-header py-2">
                                                     <small className="fw-bold">
-                                                        Question {qIdx + 1}: {question.question_text || `Question ${question.id}`}
+                                                        Question {question.questionOrder || question.question_order || (qIdx + 1)}: {question.questionText || question.question_text || `[Missing question text for ID: ${question.questionId || question.id}]`}
                                                     </small>
+                                                    <div className="text-muted" style={{fontSize: '10px'}}>
+                                                        Debug: Q-ID:{question.questionId || question.id}, Text:"{question.questionText || question.question_text}", Options:{question.options?.length || 0}
+                                                    </div>
                                                 </div>
                                                 <div className="card-body py-3">
-                                                    {question.options?.map(option => {
-                                                        const isSelected = option.id === studentAnswer?.selected_option_id || 
-                                                                         parseInt(option.id) === parseInt(studentAnswer?.selected_option_id);
-                                                        const isCorrectOption = option.is_correct;
-                                                        
-                                                        let className = "p-2 rounded mb-2 border ";
-                                                        let icon = "";
-                                                        
-                                                        if (isSelected && isCorrectOption) {
-                                                            className += "bg-success bg-opacity-25 border-success";
-                                                            icon = "✅";
-                                                        } else if (isSelected && !isCorrectOption) {
-                                                            className += "bg-danger bg-opacity-25 border-danger";
-                                                            icon = "❌";
-                                                        } else if (isCorrectOption) {
-                                                            className += "bg-warning bg-opacity-25 border-warning";
-                                                            icon = "⭐";
-                                                        } else {
-                                                            className += "bg-light border-light";
-                                                            icon = "⚪";
-                                                        }
-                                                        
-                                                        return (
-                                                            <div key={option.id} className={className}>
+                                                    {/* Show all options if available in quiz structure */}
+                                                    {question.options && question.options.length > 0 ? (
+                                                        question.options.map(option => {
+                                                            const isSelected = studentAnswer && (
+                                                                parseInt(option.optionId || option.id) === parseInt(studentAnswer.selected_option_id)
+                                                            );
+                                                            const isCorrect = option.isCorrect || option.is_correct;
+                                                            
+                                                            let className = "p-2 rounded mb-2 border ";
+                                                            let icon = "";
+                                                            
+                                                            if (isSelected && isCorrect) {
+                                                                className += "bg-success bg-opacity-25 border-success";
+                                                                icon = "✅";
+                                                            } else if (isSelected && !isCorrect) {
+                                                                className += "bg-danger bg-opacity-25 border-danger";
+                                                                icon = "❌";
+                                                            } else if (isCorrect) {
+                                                                className += "bg-warning bg-opacity-25 border-warning";
+                                                                icon = "⭐";
+                                                            } else {
+                                                                className += "bg-light border-light";
+                                                                icon = "⚪";
+                                                            }
+                                                            
+                                                            return (
+                                                                <div key={option.optionId || option.id} className={className}>
+                                                                    <small>
+                                                                        <span className="me-2">{icon}</span>
+                                                                        {option.optionText || option.option_text || `[Missing option text for ID: ${option.optionId || option.id}]`}
+                                                                        {isSelected && <span className="badge bg-primary ms-2">Selected</span>}
+                                                                        {isCorrect && <span className="badge bg-success ms-2">Correct</span>}
+                                                                    </small>
+                                                                    <div className="text-muted" style={{fontSize: '9px'}}>
+                                                                        Debug: Opt-ID:{option.optionId || option.id}, Text:"{option.optionText || option.option_text}", Correct:{option.isCorrect || option.is_correct}
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        })
+                                                    ) : (
+                                                        /* If no options structure, show just the selected answer */
+                                                        studentAnswer ? (
+                                                            <div className={`p-3 rounded border ${studentAnswer.is_correct ? 'bg-success bg-opacity-25 border-success' : 'bg-danger bg-opacity-25 border-danger'}`}>
+                                                                <div className="d-flex justify-content-between align-items-center">
+                                                                    <div>
+                                                                        <span className="me-2">
+                                                                            {studentAnswer.is_correct ? '✅' : '❌'}
+                                                                        </span>
+                                                                        <span className="fw-semibold">{studentAnswer.option_text}</span>
+                                                                        <span className="badge bg-primary ms-2">Selected</span>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        ) : (
+                                                            <div className="alert alert-warning text-center py-2">
                                                                 <small>
-                                                                    <span className="me-2">{icon}</span>
-                                                                    {option.option_text || `Option ${option.id}`}
-                                                                    {isSelected && <span className="badge bg-primary ms-2">Selected</span>}
-                                                                    {isCorrectOption && <span className="badge bg-success ms-2">Correct</span>}
+                                                                    <i className="fas fa-exclamation-triangle me-1"></i>
+                                                                    No answer recorded
                                                                 </small>
                                                             </div>
-                                                        );
-                                                    })}
-                                                    {!studentAnswer && (
-                                                        <div className="alert alert-warning text-center py-2">
-                                                            <small>
-                                                                <i className="fas fa-exclamation-triangle me-1"></i>
-                                                                No answer recorded for this question
-                                                            </small>
-                                                        </div>
+                                                        )
                                                     )}
+                                                    
+                                                    {/* Show answer summary */}
                                                     {studentAnswer && (
-                                                        <div className="mt-2">
-                                                            <small className="text-muted">
-                                                                <i className="fas fa-info-circle me-1"></i>
-                                                                Answer: {selectedOption?.option_text || 'Unknown option'} 
-                                                                {isCorrect ? ' (Correct ✓)' : ' (Incorrect ✗)'}
-                                                            </small>
+                                                        <div className="mt-3 pt-2 border-top">
+                                                            <div className="mb-1">
+                                                                <small className="text-muted">
+                                                                    <i className="fas fa-info-circle me-1"></i>
+                                                                    <strong>Answer:</strong> {studentAnswer.option_text || 'Unknown option'} 
+                                                                    {studentAnswer.is_correct ? ' (Correct ✓)' : ' (Incorrect ✗)'}
+                                                                </small>
+                                                            </div>
+                                                            <div>
+                                                                <small className="text-muted">
+                                                                    <i className="fas fa-clock me-1"></i>
+                                                                    <strong>Answered at:</strong> {new Date(studentAnswer.answered_at).toLocaleString()}
+                                                                </small>
+                                                            </div>
                                                         </div>
                                                     )}
                                                 </div>
@@ -592,7 +739,7 @@ const QuizResults = () => {
                         ) : (
                             <div className="alert alert-warning">
                                 <i className="fas fa-exclamation-triangle me-2"></i>
-                                No question data available
+                                No question data available for this student
                             </div>
                         )}
                         
@@ -1055,6 +1202,7 @@ const QuizResults = () => {
                                                                     'Unknown Student'
                                                     }} 
                                                     quiz={quiz} 
+                                                    answerStats={answerStats}
                                                 />
                                             )}
                                         </React.Fragment>
@@ -1080,9 +1228,9 @@ const QuizResults = () => {
                         {answerStats && answerStats.length > 0 ? (
                             (answerStats || []).map(question => (
                                 <div key={question.questionId} className="mb-4">
-                                <h6 className="fw-bold">Question {question.questionOrder}: {question.questionText}</h6>
-                                <div className="row">
-                                    {(question.options || []).map(option => (
+                                    <h6 className="fw-bold">Question {question.questionOrder}: {question.questionText}</h6>
+                                    <div className="row">
+                                        {(question.options || []).map(option => (
                                         <div key={option.optionId} className="col-md-6 mb-2">
                                             <div className={`card ${option.isCorrect ? 'border-success' : 'border-light'} h-100`}>
                                                 <div className="card-body py-2">
