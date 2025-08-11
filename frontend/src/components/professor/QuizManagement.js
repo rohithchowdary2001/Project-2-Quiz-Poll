@@ -44,7 +44,6 @@ const QuizManagement = () => {
   useEffect(() => {
     // Setup socket connection for professor
     socket.on('connect', () => {
-      console.log('📡 Professor socket connected:', socket.id);
       socket.emit('join_professor_room', user.id);
     });
 
@@ -77,7 +76,6 @@ const QuizManagement = () => {
         ? `?classId=${selectedClassId}&sortBy=created_at&sortOrder=DESC`
         : "?sortBy=created_at&sortOrder=DESC";
       const response = await api.get(`/quizzes${params}`);
-      console.log('📊 Fetched quizzes data sample:', response.data.quizzes?.slice(0, 2)); // Log first 2 quizzes
       setQuizzes(response.data.quizzes || []);
       setError("");
     } catch (err) {
@@ -425,61 +423,6 @@ const QuizManagement = () => {
           ></button>
         </div>
       )}
-
-      {/* Socket-Only Active/Pause Info */}
-      <div className="alert alert-success d-flex align-items-center mb-3">
-        <i className="fas fa-bolt me-3 fs-4"></i>
-        <div>
-          <strong>⚡ Socket-Only Active/Pause System:</strong> Quiz activation/pause now works with <strong>zero database calls</strong>! 
-          Status changes are broadcasted instantly via Socket.IO, just like your live poll answers. 
-          <small className="d-block mt-1 text-muted">
-            Status resets on page refresh - perfect for live session management!
-          </small>
-        </div>
-        <button 
-          className="btn btn-warning ms-auto" 
-          onClick={() => {
-            console.log('🔍 PROFESSOR DEBUG INFO:');
-            console.log('Socket connected:', socket.connected);
-            console.log('Socket ID:', socket.id);
-            console.log('Total quizzes:', quizzes.length);
-            
-            // Show each quiz individually for better visibility
-            quizzes.forEach((quiz, index) => {
-              console.log(`Quiz ${index + 1}: ID=${quiz.id}, Title="${quiz.title}", Class_ID=${quiz.class_id}, Class_Name="${quiz.class_name}"`);
-            });
-            
-            // Find Quiz 16 specifically
-            const quiz16 = quizzes.find(q => q.id === 16);
-            if (quiz16) {
-              console.log(`🎯 QUIZ 16 DETAILS: Class_ID=${quiz16.class_id}, Should broadcast to class_${quiz16.class_id}`);
-              console.log(`🔍 ISSUE CHECK: Student is in class_7, but quiz 16 is in class_${quiz16.class_id}`);
-            } else {
-              console.log('❌ Quiz 16 not found in current quizzes');
-            }
-            
-            // Test manual emission to class 7
-            console.log('🧪 TESTING: Manual emission to class_7');
-            socket.emit('quiz_live_status_change', {
-              quizId: 16,
-              quizTitle: "Manual Test Quiz",
-              classId: 7,
-              isLiveActive: true,
-              professorId: user.id,
-              professorName: user.full_name || user.email,
-              timestamp: Date.now()
-            });
-            console.log('🧪 Manual test sent - check student side!');
-            
-            // Also test a simple ping
-            console.log('🏓 TESTING: Simple ping to backend');
-            socket.emit('test_ping', { message: 'Hello from professor', timestamp: Date.now() });
-          }}
-        >
-          <i className="fas fa-bug me-2"></i>
-          Debug Professor
-        </button>
-      </div>
 
       {quizzes.length === 0 ? (
         <div className="alert alert-info">

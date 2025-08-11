@@ -28,8 +28,8 @@ class Server {
         this.app = express();
         this.port = config.server.port;
         
-        // In-memory store for current quiz statuses (socket-only)
-        this.currentQuizStatuses = new Map(); // quizId -> { isLiveActive, quizTitle, classId, timestamp }
+        // In-memory store for current quiz statuses
+        this.currentQuizStatuses = new Map();
         
         this.setupMiddleware();
         this.setupRoutes();
@@ -54,29 +54,29 @@ class Server {
 
     setupSocketIO() {
         this.io.on('connection', (socket) => {
-            console.log('📡 Socket connected:', socket.id);
+            
 
             // Join user-specific room for receiving personal notifications
             socket.on('join_user_room', (userId) => {
                 socket.join(`user_${userId}`);
-                console.log(`📡 Socket ${socket.id} joined user room user_${userId}`);
+                
             });
 
             // Join room for quiz to get real-time updates
             socket.on('join_quiz_room', (quizId) => {
                 socket.join(`quiz_${quizId}`);
-                console.log(`📡 Socket ${socket.id} joined room quiz_${quizId}`);
+                
             });
 
             // Join professor room for receiving quiz management updates
             socket.on('join_professor_room', (professorId) => {
                 socket.join(`professor_${professorId}`);
-                console.log(`📡 Socket ${socket.id} joined professor room professor_${professorId}`);
+                
             });
 
-            // Handle live answer updates (no DB storage)
+            // Handle live answer updates
             socket.on('live_answer_update', (data) => {
-                console.log('📡 Live answer update received:', data);
+                
                 // Broadcast to professor and other students in the quiz room
                 socket.to(`quiz_${data.quizId}`).emit('live_answer_update', {
                     studentId: data.studentId,
@@ -89,9 +89,9 @@ class Server {
                 });
             });
 
-            // Handle quiz live status changes (Pure Frontend Socket-Only!)
+            // Handle quiz live status changes
             socket.on('quiz_live_status_change', (data) => {
-                console.log('📡 SOCKET-ONLY: Quiz status change relay (NO DATABASE!):', data);
+                
                 
                 // Store current status in memory for new users
                 this.currentQuizStatuses.set(data.quizId, {
@@ -103,17 +103,17 @@ class Server {
                     professorName: data.professorName
                 });
                 
-                console.log(`💾 Stored quiz ${data.quizId} status in memory: ${data.isLiveActive ? 'ACTIVE' : 'PAUSED'}`);
+                
                 
                 // Get all sockets in the class room to verify broadcasting
                 const classRoom = `class_${data.classId}`;
                 const socketsInRoom = this.io.sockets.adapter.rooms.get(classRoom);
                 const roomSize = socketsInRoom ? socketsInRoom.size : 0;
                 
-                console.log(`🔍 ROOM DEBUG: Broadcasting to ${classRoom}, ${roomSize} clients in room`);
+                
                 
                 if (roomSize === 0) {
-                    console.log('⚠️ WARNING: No students in class room ' + classRoom + '! Students may not have joined properly.');
+                    
                 }
                 
                 // Broadcast to all students in the class
@@ -126,21 +126,20 @@ class Server {
                     timestamp: data.timestamp
                 });
                 
-                console.log(`📡 PURE FRONTEND: Quiz ${data.quizId} status broadcasted to ${classRoom} - ${data.isLiveActive ? 'ACTIVATED' : 'PAUSED'}`);
-                console.log(`🚀 NO DATABASE WRITES - Pure socket communication!`);
-                console.log(`📊 Broadcast sent to ${roomSize} students in ${classRoom}`);
+                
+                
+                
             });
             
-            // Test ping handler for debugging
+            // Test ping handler
             socket.on('test_ping', (data) => {
-                console.log('🏓 BACKEND: Received test ping:', data);
                 socket.emit('test_pong', { message: 'Pong from backend', originalMessage: data.message, timestamp: Date.now() });
             });
 
             // Join class room for students to receive quiz activation updates
             socket.on('join_class_room', (classId) => {
                 socket.join(`class_${classId}`);
-                console.log(`📡 Socket ${socket.id} joined class room class_${classId}`);
+                
                 
                 // Send current quiz statuses for this class to the newly joined user
                 const currentStatuses = [];
@@ -156,7 +155,7 @@ class Server {
                 }
                 
                 if (currentStatuses.length > 0) {
-                    console.log(`📤 Sending ${currentStatuses.length} current quiz statuses to newly joined user`);
+                    
                     socket.emit('current_quiz_statuses', currentStatuses);
                 }
                 
@@ -164,7 +163,7 @@ class Server {
                 const classRoom = `class_${classId}`;
                 const socketsInRoom = this.io.sockets.adapter.rooms.get(classRoom);
                 const roomSize = socketsInRoom ? socketsInRoom.size : 0;
-                console.log(`✅ Room ${classRoom} now has ${roomSize} clients`);
+                
                 
                 // Send confirmation back to the client
                 socket.emit('room_joined', { classId: classId, roomSize: roomSize });
@@ -173,11 +172,11 @@ class Server {
             // Join quiz room for live answer updates
             socket.on('join_quiz_room', (quizId) => {
                 socket.join(`quiz_${quizId}`);
-                console.log(`📡 Socket ${socket.id} joined quiz room quiz_${quizId}`);
+                
             });
 
             socket.on('disconnect', () => {
-                console.log('📡 Socket disconnected:', socket.id);
+                
             });
         });
 
@@ -226,7 +225,7 @@ class Server {
 
         this.app.use((req, res, next) => {
             const timestamp = new Date().toISOString();
-            console.log(`[${timestamp}] ${req.method} ${req.path} - ${req.ip}`);
+            
             next();
         });
     }
@@ -296,18 +295,18 @@ class Server {
         });
 
         process.on('SIGTERM', () => {
-            console.log('SIGTERM received, shutting down gracefully');
+            
             this.shutdown();
         });
 
         process.on('SIGINT', () => {
-            console.log('SIGINT received, shutting down gracefully');
+            
             this.shutdown();
         });
     }
 
     async shutdown() {
-        console.log('Closing server...');
+        
         await database.close();
         process.exit(0);
     }

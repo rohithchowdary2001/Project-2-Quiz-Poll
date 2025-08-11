@@ -11,41 +11,35 @@ export const AuthProvider = ({ children }) => {
     const [loading, setLoading] = useState(true);
     const [initialCheck, setInitialCheck] = useState(false);
 
-    // Debug function
+    // State tracking function
     const debugState = () => {
-        console.log('AuthContext - Current state:', {
-            user: user,
-            token: token,
-            loading: loading,
-            initialCheck: initialCheck,
-            localStorage_token: localStorage.getItem('token')
-        });
+        // State tracking removed for production
     };
 
     // Check if user is authenticated on app load
     useEffect(() => {
         if (initialCheck) return; // Prevent multiple runs
         
-        console.log('AuthContext - Initial useEffect triggered, verifying token...');
+        
         const verifyToken = async () => {
             const storedToken = localStorage.getItem('token');
-            console.log('AuthContext - Stored token:', storedToken ? 'exists' : 'not found');
+            
             
             if (storedToken) {
                 try {
                     // Set token in API headers
                     api.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
-                    console.log('AuthContext - Verifying token with backend...');
+                    
                     
                     // Verify token with backend
                     const response = await api.get('/auth/verify');
-                    console.log('AuthContext - Token verification successful:', response.data.user);
+                    
                     
                     setUser(response.data.user);
                     setToken(storedToken);
                 } catch (error) {
                     // Token is invalid, remove it
-                    console.log('AuthContext - Token verification failed:', error.message);
+                    
                     localStorage.removeItem('token');
                     delete api.defaults.headers.common['Authorization'];
                     setUser(null);
@@ -58,7 +52,7 @@ export const AuthProvider = ({ children }) => {
             }
             setLoading(false);
             setInitialCheck(true);
-            console.log('AuthContext - Verification complete, loading set to false');
+            
         };
 
         verifyToken();
@@ -67,7 +61,7 @@ export const AuthProvider = ({ children }) => {
     // Login function
     const login = async (userData, userToken) => {
         try {
-            console.log('AuthContext - Login called with:', userData, 'token:', userToken ? 'provided' : 'missing');
+            
             
             // Store token
             localStorage.setItem('token', userToken);
@@ -79,7 +73,7 @@ export const AuthProvider = ({ children }) => {
             setToken(userToken);
             setUser(userData);
             
-            console.log('AuthContext - Login successful, user set:', userData);
+            
             debugState();
             return { success: true };
         } catch (error) {
@@ -90,7 +84,7 @@ export const AuthProvider = ({ children }) => {
 
     // Logout function
     const logout = () => {
-        console.log('AuthContext - Logout called');
+        
         localStorage.removeItem('token');
         delete api.defaults.headers.common['Authorization'];
         setUser(null);

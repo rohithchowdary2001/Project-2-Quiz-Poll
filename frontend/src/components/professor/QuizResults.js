@@ -46,15 +46,10 @@ const QuizResults = () => {
             console.error('Socket connection error in QuizResults:', error);
         });
         
-        // LIVE ANSWER UPDATES - Socket Only (No Database!)
+        // REAL-TIME ANSWER UPDATES
         socket.on('live_answer_update', (data) => {
             // Only process if it's for this quiz
             if (String(data.quizId) === String(quizId)) {
-                
-                // Debug first question specifically
-                if (data.questionId === 23 || data.questionId === '23') {
-                    console.log('🎯 FIRST QUESTION (23) RECEIVED:', data);
-                }
                 
                 // Update live answers state
                 setLiveAnswers(prev => {
@@ -109,23 +104,8 @@ const QuizResults = () => {
             return;
         }
         
-        // Debug: Check first question specifically
-        const firstQuestion = quiz.questions[0];
-        if (firstQuestion) {
-            console.log('🔍 First Question Debug:', {
-                questionId: firstQuestion.id,
-                questionIdType: typeof firstQuestion.id,
-                questionText: firstQuestion.question_text || firstQuestion.text,
-                answersForThisQuestion: Object.entries(answersData).map(([studentId, studentAnswers]) => ({
-                    studentId,
-                    hasAnswerForFirstQ: !!studentAnswers[firstQuestion.id],
-                    answerData: studentAnswers[firstQuestion.id]
-                }))
-            });
-        }
-        
         const stats = (quiz.questions || []).map(question => {
-            // Count selections for each option from live socket data
+            // Count selections for each option from real-time data
             const optionCounts = {};
             let totalSelections = 0;
             
@@ -142,31 +122,12 @@ const QuizResults = () => {
                 };
             });
             
-            // Count selections from live socket data
+            // Count selections from real-time data
             Object.values(answersData).forEach(studentAnswers => {
-                // Debug first question lookup
-                if (question.id === 23 || question.id === '23') {
-                    console.log('🔍 Checking question 23 in studentAnswers:', {
-                        questionId: question.id,
-                        studentAnswersKeys: Object.keys(studentAnswers),
-                        hasAnswer23: studentAnswers[23],
-                        hasAnswerStr23: studentAnswers['23']
-                    });
-                }
-                
                 const answer = studentAnswers[question.id];
                 if (answer && optionCounts[answer.selectedOptionId]) {
                     optionCounts[answer.selectedOptionId].selectionCount++;
                     totalSelections++;
-                    
-                    // Debug first question specifically
-                    if (question.id === 23 || question.id === '23') {
-                        console.log('🎯 FIRST QUESTION COUNTED:', {
-                            questionId: question.id,
-                            selectedOptionId: answer.selectedOptionId,
-                            totalSelections: totalSelections
-                        });
-                    }
                 }
             });
             
@@ -698,7 +659,7 @@ const QuizResults = () => {
         const completedSubmissions = results.length;
         const totalStudents = liveStudentCount + completedSubmissions;
         
-        // Calculate stats from live data (socket-only, no database!)
+        // Calculate stats from real-time data
         const totalLiveAnswers = Object.values(liveAnswers).reduce((sum, studentAnswers) => 
             sum + Object.keys(studentAnswers).length, 0
         );
@@ -775,7 +736,7 @@ const QuizResults = () => {
                 </div>
             )}
 
-            {/* Live Overall Statistics - Socket + Database Combined! */}
+            {/* Overall Statistics - Real-time + Completed Combined */}
             {(stats || results.length > 0 || Object.keys(liveStudents).length > 0) && (
                 <div className="row mb-4">
                     <div className="col-md-3 mb-3">
@@ -786,7 +747,7 @@ const QuizResults = () => {
                                     {stats ? stats.totalStudents : results.length + Object.keys(liveStudents).length}
                                 </h5>
                                 <p className="card-text small">Total Students</p>
-                                <small className="text-primary">Live + Completed</small>
+                                <small className="text-primary">All Records</small>
                             </div>
                         </div>
                     </div>
@@ -798,7 +759,7 @@ const QuizResults = () => {
                                     {stats ? stats.completedSubmissions : results.length}
                                 </h5>
                                 <p className="card-text small">Completed</p>
-                                <small className="text-success">Database</small>
+                                <small className="text-success">Submitted</small>
                             </div>
                         </div>
                     </div>
@@ -810,7 +771,7 @@ const QuizResults = () => {
                                     {stats ? stats.activeNow : Object.keys(liveStudents).length}
                                 </h5>
                                 <p className="card-text small">Taking Quiz Now</p>
-                                <small className="text-warning">Live Socket</small>
+                                <small className="text-warning">Active</small>
                             </div>
                         </div>
                     </div>
@@ -827,22 +788,22 @@ const QuizResults = () => {
                                     }
                                 </h5>
                                 <p className="card-text small">Avg Score</p>
-                                <small className="text-info">Completed Only</small>
+                                <small className="text-info">Completed Students</small>
                             </div>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* LIVE ANSWER TRACKING - Socket Only! */}
+            {/* ACTIVE STUDENT TRACKING */}
             {Object.keys(liveStudents).length > 0 && (
                 <div className="card mb-4 border-success">
                     <div className="card-header bg-success text-white">
                         <h5 className="mb-0">
                             <i className="fas fa-bolt me-2"></i>
-                            Live Answers (Socket Only - No Database)
+                            Active Students
                         </h5>
-                        <small>Real-time answers from students currently taking the quiz</small>
+                        <small>Students currently taking the quiz</small>
                     </div>
                     <div className="card-body">
                         {Object.entries(liveStudents).map(([studentId, student]) => {
@@ -879,7 +840,7 @@ const QuizResults = () => {
                                                         title={answerData.isTimeExpired ? 'Time Expired' : 'Active Selection'}
                                                     >
                                                         Q{questionId}: {answerData.optionText}
-                                                        {answerData.isTimeExpired && ' ⏰'}
+                                                        {answerData.isTimeExpired && ' (timeout)'}
                                                     </div>
                                                 ))}
                                             </div>
@@ -890,21 +851,21 @@ const QuizResults = () => {
                         })}
                         <div className="alert alert-info mb-0">
                             <i className="fas fa-info-circle me-2"></i>
-                            <strong>Live Updates:</strong> These answers are streamed in real-time via Socket.IO. 
-                            They are <strong>NOT stored in the database</strong> until the student completes the entire quiz.
+                            <strong>Real-time Updates:</strong> These answers are updated live as students take the quiz. 
+                            Final results are saved when students complete their submission.
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* 🎯 SIMPLIFIED LIVE POLLING */}
+            {/* REAL-TIME QUIZ POLLING */}
             <div className="card mb-4">
                 <div className="card-header bg-primary text-white">
                     <h5 className="mb-0">
                         <i className="fas fa-poll me-2"></i>
-                        Live Quiz Polling
+                        Real-time Quiz Results
                     </h5>
-                    <small>Real-time responses from students</small>
+                    <small>Live responses from active students</small>
                 </div>
                 <div className="card-body">
                     {livePollStats && livePollStats.length > 0 ? (
@@ -926,7 +887,7 @@ const QuizResults = () => {
                                                 <div className="d-flex justify-content-between align-items-center">
                                                     <div className="flex-grow-1">
                                                         <span className={`me-2 ${option.selectionCount > 0 ? 'text-success' : 'text-muted'}`}>
-                                                            {option.selectionCount > 0 ? '✅' : '❌'}
+                                                            {option.selectionCount > 0 ? '●' : '○'}
                                                         </span>
                                                         <span className="fw-medium">
                                                             {option.optionText || `Option ${String.fromCharCode(65 + idx)}`}
@@ -951,7 +912,7 @@ const QuizResults = () => {
                         <div className="text-center text-muted py-5">
                             <i className="fas fa-users fa-3x mb-3 opacity-25"></i>
                             <h6>Waiting for student responses...</h6>
-                            <p className="mb-0">Live data will appear here when students start answering questions</p>
+                            <p className="mb-0">Real-time data will appear here when students start answering questions</p>
                         </div>
                     )}
                 </div>
@@ -962,18 +923,18 @@ const QuizResults = () => {
                 <div className="card mb-4">
                     <div className="card-body text-center py-5">
                         <i className="fas fa-hourglass-half fs-1 text-muted mb-3"></i>
-                        <h5 className="text-muted">No Live Quiz Activity</h5>
+                        <h5 className="text-muted">No Active Quiz Sessions</h5>
                         <div className="text-start">
                             <p className="text-muted mb-1">
                                 <strong>Completed submissions:</strong> {results.length} students found in database<br />
-                                🔴 <strong>Live students:</strong> {Object.keys(liveStudents).length} currently taking the quiz<br />
-                                <strong>Socket status:</strong> {socket.connected ? '✅ Connected' : '❌ Disconnected'} (ID: {socket.id})
+                                <strong>Active students:</strong> {Object.keys(liveStudents).length} currently taking the quiz<br />
+                                <strong>Connection status:</strong> {socket.connected ? 'Connected' : 'Disconnected'} (ID: {socket.id})
                             </p>
                             <hr />
                             <p className="text-muted mb-0">
-                                <strong>Live poll results</strong> will appear here automatically as students start taking the quiz.<br />
+                                <strong>Real-time results</strong> will appear here automatically as students start taking the quiz.<br />
                                 <small>• Students must select answers to see live polling data<br />
-                                • Results update in real-time via Socket.IO (no database calls)</small>
+                                • Results update in real-time as answers are submitted</small>
                             </p>
                         </div>
                     </div>

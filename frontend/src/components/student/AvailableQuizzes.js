@@ -19,10 +19,10 @@ const AvailableQuizzes = () => {
         
         // Join user room for receiving personal notifications
         if (user?.id) {
-            console.log(`📡 Joining user room: user_${user.id}`);
+            
             socket.emit('join_user_room', user.id);
         } else {
-            console.log(`⚠️ User not available for socket room join:`, user);
+            
         }
     }, [user]);
 
@@ -33,7 +33,7 @@ const AvailableQuizzes = () => {
     // Listen for live quiz activation/deactivation events (Pure Frontend Socket!)
     useEffect(() => {
         const handleQuizStatusChange = (data) => {
-            console.log('🔄 SOCKET-ONLY: Quiz status changed:', data);
+            
             
             // Update the specific quiz in our local state
             setQuizzes(prev => {
@@ -49,7 +49,7 @@ const AvailableQuizzes = () => {
                     }
                     return quiz;
                 });
-                console.log(`📊 Updated quiz ${data.quizId} to ${data.isLiveActive ? 'ACTIVE' : 'PAUSED'}`);
+                
                 return updated;
             });
             
@@ -59,27 +59,27 @@ const AvailableQuizzes = () => {
                 : `⏸️ "${data.quizTitle}" has been PAUSED and is no longer available.`;
             
             alert(statusMessage);
-            console.log(`📡 PURE FRONTEND: ${statusMessage}`);
+            
         };
 
         // Ensure socket is connected before joining rooms
         const setupSocketListeners = () => {
-            console.log('📡 Setting up SOCKET-ONLY listeners for quiz status changes (NO DATABASE!)');
+            
             
             // Join class rooms for live updates with confirmation
             if (classes.length > 0) {
                 classes.forEach(classItem => {
                     socket.emit('join_class_room', classItem.id);
-                    console.log(`📡 Joined class room: ${classItem.id} for socket-only updates`);
+                    
                     
                     // Double-check: emit join again after a short delay to ensure connection
                     setTimeout(() => {
                         socket.emit('join_class_room', classItem.id);
-                        console.log(`📡 Re-confirmed class room join: ${classItem.id}`);
+                        
                     }, 100);
                 });
             } else {
-                console.log('⚠️ WARNING: No classes found to join rooms for');
+                
             }
 
             // Set up status change listener
@@ -87,37 +87,37 @@ const AvailableQuizzes = () => {
             
             // Listen for room join confirmations
             socket.on('room_joined', (data) => {
-                console.log(`✅ Successfully joined class room ${data.classId} with ${data.roomSize} total clients`);
+                
             });
             
-            // Test pong listener for debugging
+            // Test pong listener
             socket.on('test_pong', (data) => {
-                console.log('🏓 STUDENT: Received pong from backend:', data);
+                
             });
         };
 
         // If socket is connected, setup immediately
         if (socket.connected) {
-            console.log('✅ Socket already connected, setting up listeners immediately');
+            
             setupSocketListeners();
         } else {
-            console.log('🔌 Socket not connected, forcing connection...');
+            
             socket.connect();
         }
 
         // Also listen for connection events
         socket.on('connect', () => {
-            console.log('✅ Socket connected in AvailableQuizzes:', socket.id);
+            
             setupSocketListeners();
         });
 
         socket.on('disconnect', () => {
-            console.log('❌ Socket disconnected in AvailableQuizzes');
+            
         });
 
         // Listen for current quiz statuses when joining rooms
         socket.on('current_quiz_statuses', (statuses) => {
-            console.log('📥 Received current quiz statuses from backend:', statuses);
+            
             
             // Update quiz statuses based on received data
             setQuizzes(prev => {
@@ -139,7 +139,7 @@ const AvailableQuizzes = () => {
         });
 
         return () => {
-            console.log('📡 Cleaning up socket-only listeners for quiz status changes');
+            
             socket.off('quiz_live_status_change', handleQuizStatusChange);
             socket.off('current_quiz_statuses');
             socket.off('connect');
@@ -149,11 +149,11 @@ const AvailableQuizzes = () => {
 
     const fetchAvailableQuizzes = async () => {
         try {
-            console.log('AvailableQuizzes - Fetching available quizzes for student...');
+            
             setLoading(true);
             const params = selectedClassId ? `?classId=${selectedClassId}&sortBy=deadline&sortOrder=ASC` : '?sortBy=deadline&sortOrder=ASC';
             const response = await api.get(`/quizzes${params}`);
-            console.log('AvailableQuizzes - Quizzes fetched:', response.data);
+            
             
             // Get submission status for each quiz
             const quizzesWithStatus = await Promise.all(
@@ -187,9 +187,9 @@ const AvailableQuizzes = () => {
 
     const fetchEnrolledClasses = async () => {
         try {
-            console.log('AvailableQuizzes - Fetching enrolled classes...');
+            
             const response = await api.get('/classes');
-            console.log('AvailableQuizzes - Classes fetched:', response.data);
+            
             setClasses(response.data.classes || []);
         } catch (err) {
             console.error('AvailableQuizzes - Error fetching classes:', err);
@@ -232,18 +232,6 @@ const AvailableQuizzes = () => {
         const status = getQuizStatus(quiz);
         // Handle MySQL BOOLEAN (0/1) and JavaScript boolean (true/false)
         const isLiveActive = !!quiz.is_live_active; // Convert any truthy value to boolean
-        
-        // Temporary debug logging to see what's happening
-        if (quiz.id === 7) { // Assuming the quiz ID you're testing with
-            console.log('🔍 DEBUG Quiz 7 canStartQuiz:', {
-                quizId: quiz.id,
-                status: status,
-                is_live_active_raw: quiz.is_live_active,
-                is_live_active_type: typeof quiz.is_live_active,
-                isLiveActive: isLiveActive,
-                canStart: status === 'Available' && isLiveActive
-            });
-        }
         
         return status === 'Available' && isLiveActive;
     };
