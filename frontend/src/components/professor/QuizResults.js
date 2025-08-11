@@ -501,6 +501,7 @@ const QuizResults = () => {
                 setLoading(true);
                 try {
                     // Get student answers from API
+                    console.log('🌐 Making API call to:', `/quizzes/${quizId}/student/${student.student_id}/answers`);
                     const response = await api.get(`/quizzes/${quizId}/student/${student.student_id}/answers`);
                     console.log('📊 Full API response:', response.data);
                     
@@ -508,16 +509,34 @@ const QuizResults = () => {
                     const apiQuestions = response.data.questions || [];
                     
                     console.log('📊 Received student answers:', studentAnswers);
-                    console.log('� Received questions from API:', apiQuestions);
+                    console.log('📊 Received questions from API:', apiQuestions);
                     
                     setAnswers(studentAnswers);
                     
-                    // Use the answerStats data since it has complete question and option information
-                    // This is the same data used in the "Completed Quiz Statistics" section that works perfectly
-                    if (answerStats && answerStats.length > 0) {
-                        console.log('📋 Using answerStats data (same as statistics section)');
-                        console.log('📋 AnswerStats sample:', answerStats[0]);
-                        setAllQuestions(answerStats);
+                    // First, try to use the complete question structure from API response
+                    if (apiQuestions && apiQuestions.length > 0) {
+                        console.log('📋 Using complete question structure from API response');
+                        console.log('📋 API Questions:', apiQuestions);
+                        // Map API questions to the expected format
+                        const formattedQuestions = apiQuestions.map(q => ({
+                            questionId: q.id,
+                            id: q.id,
+                            questionText: q.question_text,
+                            question_text: q.question_text,
+                            questionOrder: q.question_order,
+                            question_order: q.question_order,
+                            options: (q.options || []).map(opt => ({
+                                optionId: opt.id,
+                                id: opt.id,
+                                optionText: opt.option_text,
+                                option_text: opt.option_text,
+                                isCorrect: opt.is_correct,
+                                is_correct: opt.is_correct,
+                                option_order: opt.option_order
+                            }))
+                        }));
+                        console.log('📋 Formatted questions for display:', formattedQuestions);
+                        setAllQuestions(formattedQuestions);
                         
                     } else if (studentAnswers && studentAnswers.length > 0) {
                         console.log('📋 Building complete question structure from student answers data');
@@ -578,17 +597,69 @@ const QuizResults = () => {
                         setAllQuestions(questionsFromAnswers);
                         
                     } else if (quiz && quiz.questions && quiz.questions.length > 0) {
-                        console.log('📋 Fallback: Using quiz structure from props');
-                        setAllQuestions(quiz.questions);
-                    } else if (apiQuestions && apiQuestions.length > 0) {
-                        console.log('📋 Fallback: Using question structure from API');
-                        setAllQuestions(apiQuestions);
+                        console.log('📋 Using quiz structure from props');
+                        // Format quiz data to match expected structure
+                        const formattedQuizQuestions = quiz.questions.map(q => ({
+                            questionId: q.id,
+                            id: q.id,
+                            questionText: q.question_text,
+                            question_text: q.question_text,
+                            questionOrder: q.question_order,
+                            question_order: q.question_order,
+                            options: (q.options || []).map(opt => ({
+                                optionId: opt.id,
+                                id: opt.id,
+                                optionText: opt.option_text,
+                                option_text: opt.option_text,
+                                isCorrect: opt.is_correct,
+                                is_correct: opt.is_correct
+                            }))
+                        }));
+                        setAllQuestions(formattedQuizQuestions);
+                        
+                    } else if (answerStats && answerStats.length > 0) {
+                        console.log('📋 Fallback: Using answerStats data');
+                        console.log('📋 AnswerStats sample:', answerStats[0]);
+                        setAllQuestions(answerStats);
+                        
                     } else {
                         console.log('📋 No question structure available');
                         setAllQuestions([]);
                     }
                 } catch (error) {
                     console.error('❌ Error fetching student answers:', error);
+                    console.error('❌ Error details:', {
+                        message: error.message,
+                        response: error.response?.data,
+                        status: error.response?.status,
+                        url: `/quizzes/${quizId}/student/${student.student_id}/answers`
+                    });
+                    
+                    // Fallback: Try to use quiz structure from props as backup
+                    if (quiz && quiz.questions && quiz.questions.length > 0) {
+                        console.log('📋 FALLBACK: Using quiz structure from props due to API error');
+                        const formattedQuizQuestions = quiz.questions.map(q => ({
+                            questionId: q.id,
+                            id: q.id,
+                            questionText: q.question_text,
+                            question_text: q.question_text,
+                            questionOrder: q.question_order,
+                            question_order: q.question_order,
+                            options: (q.options || []).map(opt => ({
+                                optionId: opt.id,
+                                id: opt.id,
+                                optionText: opt.option_text,
+                                option_text: opt.option_text,
+                                isCorrect: opt.is_correct,
+                                is_correct: opt.is_correct
+                            }))
+                        }));
+                        setAllQuestions(formattedQuizQuestions);
+                        
+                        // Create mock student answers for display purposes
+                        console.log('📋 Creating demo answers since API failed');
+                        setAnswers([]);
+                    }
                 }
                 setLoading(false);
             };
@@ -740,6 +811,19 @@ const QuizResults = () => {
                             <div className="alert alert-warning">
                                 <i className="fas fa-exclamation-triangle me-2"></i>
                                 No question data available for this student
+                                <details className="mt-2">
+                                    <summary className="text-primary" style={{cursor: 'pointer'}}>📊 Show Debug Data</summary>
+                                    <div className="mt-2 p-2 bg-light rounded">
+                                        <small>
+                                            <strong>Student ID:</strong> {student.student_id}<br/>
+                                            <strong>Quiz ID:</strong> {quizId}<br/>
+                                            <strong>API Questions Length:</strong> {allQuestions.length}<br/>
+                                            <strong>Student Answers Length:</strong> {answers.length}<br/>
+                                            <strong>Quiz Questions from Props:</strong> {quiz?.questions?.length || 0}<br/>
+                                            <strong>Available answerStats:</strong> {answerStats?.length || 0}
+                                        </small>
+                                    </div>
+                                </details>
                             </div>
                         )}
                         
