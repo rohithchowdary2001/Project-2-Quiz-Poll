@@ -513,119 +513,105 @@ const QuizResults = () => {
                     
                     setAnswers(studentAnswers);
                     
-                    // First, try to use the complete question structure from API response
-                    if (apiQuestions && apiQuestions.length > 0) {
-                        console.log('📋 Using complete question structure from API response');
-                        console.log('📋 API Questions:', apiQuestions);
-                        // Map API questions to the expected format
-                        const formattedQuestions = apiQuestions.map(q => ({
-                            questionId: q.id,
-                            id: q.id,
-                            questionText: q.question_text,
-                            question_text: q.question_text,
-                            questionOrder: q.question_order,
-                            question_order: q.question_order,
-                            options: (q.options || []).map(opt => ({
-                                optionId: opt.id,
-                                id: opt.id,
-                                optionText: opt.option_text,
-                                option_text: opt.option_text,
-                                isCorrect: opt.is_correct,
-                                is_correct: opt.is_correct,
-                                option_order: opt.option_order
-                            }))
-                        }));
-                        console.log('📋 Formatted questions for display:', formattedQuestions);
-                        setAllQuestions(formattedQuestions);
+                    // PRIORITY 1: Try to get complete quiz structure from main API as it has full text
+                    console.log('🔄 Step 1: Getting complete quiz structure from main API...');
+                    try {
+                        const quizResponse = await api.get(`/quizzes/${quizId}`);
+                        const completeQuiz = quizResponse.data.quiz;
+                        console.log('📋 Complete quiz data received:', completeQuiz);
                         
-                    } else if (studentAnswers && studentAnswers.length > 0) {
-                        console.log('📋 Building complete question structure from student answers data');
-                        
-                        // Group answers by question and get all options for each question
-                        const questionsFromAnswers = [];
-                        const processedQuestions = new Set();
-                        
-                        for (const answer of studentAnswers) {
-                            if (!processedQuestions.has(answer.question_id)) {
-                                // For each question, we need to get all its options from the quiz structure
-                                // But since we have the answer data, we can at least show the selected option properly
-                                const questionStructure = {
-                                    id: answer.question_id,
-                                    question_text: answer.question_text,
-                                    question_order: answer.question_order,
-                                    options: [] // We'll try to get all options from quiz structure
-                                };
-                                
-                                // Try to get all options from quiz structure if available
-                                if (quiz && quiz.questions) {
-                                    const quizQuestion = quiz.questions.find(q => 
-                                        parseInt(q.id) === parseInt(answer.question_id)
-                                    );
-                                    if (quizQuestion && quizQuestion.options) {
-                                        questionStructure.options = quizQuestion.options.map(option => ({
-                                            id: option.id,
-                                            option_text: option.option_text || (
-                                                // If this is the selected option, use the text from student answer
-                                                parseInt(option.id) === parseInt(answer.selected_option_id) 
-                                                    ? answer.option_text 
-                                                    : `Option ${option.id}`
-                                            ),
-                                            is_correct: option.is_correct,
-                                            option_order: option.option_order || 1
-                                        }));
-                                    }
-                                }
-                                
-                                // If we still don't have complete options, create structure with just the selected option
-                                if (questionStructure.options.length === 0 || questionStructure.options.every(opt => !opt.option_text || opt.option_text.startsWith('Option '))) {
-                                    questionStructure.options = [{
-                                        id: answer.selected_option_id,
-                                        option_text: answer.option_text,
-                                        is_correct: !!answer.is_correct,
-                                        option_order: 1
-                                    }];
-                                    console.log(`📋 Using minimal option structure for question ${answer.question_id}`);
-                                }
-                                
-                                questionsFromAnswers.push(questionStructure);
-                                processedQuestions.add(answer.question_id);
+                        if (completeQuiz && completeQuiz.questions && completeQuiz.questions.length > 0) {
+                            // Check if we have actual text content
+                            const hasText = completeQuiz.questions.some(q => 
+                                q.question_text && q.question_text.trim() && q.question_text !== ""
+                            );
+                            
+                            if (hasText) {
+                                console.log('✅ SUCCESS: Complete quiz has question text');
+                                const formattedQuestions = completeQuiz.questions.map(q => ({
+                                    questionId: q.id,
+                                    id: q.id,
+                                    questionText: q.question_text,
+                                    question_text: q.question_text,
+                                    questionOrder: q.question_order,
+                                    question_order: q.question_order,
+                                    options: (q.options || []).map(opt => ({
+                                        optionId: opt.id,
+                                        id: opt.id,
+                                        optionText: opt.option_text,
+                                        option_text: opt.option_text,
+                                        isCorrect: opt.is_correct,
+                                        is_correct: opt.is_correct,
+                                        option_order: opt.option_order
+                                    }))
+                                }));
+                                console.log('📋 Using complete quiz questions with text:', formattedQuestions);
+                                setAllQuestions(formattedQuestions);
+                            } else {
+                                console.log('⚠️ Complete quiz data lacks question text, trying API response');
+                                tryApiQuestions();
                             }
+                        } else {
+                            console.log('⚠️ No complete quiz data, trying API response');
+                            tryApiQuestions();
                         }
-                        
-                        questionsFromAnswers.sort((a, b) => a.question_order - b.question_order);
-                        console.log('📋 Built questions from answers:', questionsFromAnswers);
-                        setAllQuestions(questionsFromAnswers);
-                        
-                    } else if (quiz && quiz.questions && quiz.questions.length > 0) {
-                        console.log('📋 Using quiz structure from props');
-                        // Format quiz data to match expected structure
-                        const formattedQuizQuestions = quiz.questions.map(q => ({
-                            questionId: q.id,
-                            id: q.id,
-                            questionText: q.question_text,
-                            question_text: q.question_text,
-                            questionOrder: q.question_order,
-                            question_order: q.question_order,
-                            options: (q.options || []).map(opt => ({
-                                optionId: opt.id,
-                                id: opt.id,
-                                optionText: opt.option_text,
-                                option_text: opt.option_text,
-                                isCorrect: opt.is_correct,
-                                is_correct: opt.is_correct
-                            }))
-                        }));
-                        setAllQuestions(formattedQuizQuestions);
-                        
-                    } else if (answerStats && answerStats.length > 0) {
-                        console.log('📋 Fallback: Using answerStats data');
-                        console.log('📋 AnswerStats sample:', answerStats[0]);
-                        setAllQuestions(answerStats);
-                        
-                    } else {
-                        console.log('📋 No question structure available');
-                        setAllQuestions([]);
+                    } catch (quizError) {
+                        console.log('⚠️ Failed to get complete quiz, trying API response:', quizError);
+                        tryApiQuestions();
                     }
+                    
+                    function tryApiQuestions() {
+                        // PRIORITY 2: Try API questions if available
+                        if (apiQuestions && apiQuestions.length > 0) {
+                            console.log('📋 Using API questions from student answers endpoint');
+                            console.log('📋 API Questions:', apiQuestions);
+                            const formattedQuestions = apiQuestions.map(q => ({
+                                questionId: q.id,
+                                id: q.id,
+                                questionText: q.question_text,
+                                question_text: q.question_text,
+                                questionOrder: q.question_order,
+                                question_order: q.question_order,
+                                options: (q.options || []).map(opt => ({
+                                    optionId: opt.id,
+                                    id: opt.id,
+                                    optionText: opt.option_text,
+                                    option_text: opt.option_text,
+                                    isCorrect: opt.is_correct,
+                                    is_correct: opt.is_correct,
+                                    option_order: opt.option_order
+                                }))
+                            }));
+                            console.log('📋 Formatted API questions:', formattedQuestions);
+                            setAllQuestions(formattedQuestions);
+                            
+                        } else if (quiz && quiz.questions && quiz.questions.length > 0) {
+                            console.log('📋 Using quiz structure from props');
+                            // Format quiz data to match expected structure
+                            const formattedQuizQuestions = quiz.questions.map(q => ({
+                                questionId: q.id,
+                                id: q.id,
+                                questionText: q.question_text,
+                                question_text: q.question_text,
+                                questionOrder: q.question_order,
+                                question_order: q.question_order,
+                                options: (q.options || []).map(opt => ({
+                                    optionId: opt.id,
+                                    id: opt.id,
+                                    optionText: opt.option_text,
+                                    option_text: opt.option_text,
+                                    isCorrect: opt.is_correct,
+                                    is_correct: opt.is_correct
+                                }))
+                            }));
+                            setAllQuestions(formattedQuizQuestions);
+                            
+                        } else {
+                            console.log('📋 No question structure available');
+                            setAllQuestions([]);
+                        }
+                    }
+                        
                 } catch (error) {
                     console.error('❌ Error fetching student answers:', error);
                     console.error('❌ Error details:', {
@@ -655,17 +641,12 @@ const QuizResults = () => {
                             }))
                         }));
                         setAllQuestions(formattedQuizQuestions);
-                        
-                        // Create mock student answers for display purposes
-                        console.log('📋 Creating demo answers since API failed');
-                        setAnswers([]);
                     }
                 }
                 setLoading(false);
             };
             fetchAnswers();
-        }, [student.student_id, quiz]);
-
+        }, [student.student_id, quiz, quizId]);
         if (loading) {
             return (
                 <tr>
