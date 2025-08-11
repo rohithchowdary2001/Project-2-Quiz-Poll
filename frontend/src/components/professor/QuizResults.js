@@ -16,10 +16,42 @@ const QuizResults = () => {
     const [sortOrder, setSortOrder] = useState('DESC');
     const [expandedRows, setExpandedRows] = useState(new Set()); // Track expanded student rows
     
-    // Live answer tracking (socket-only, no database)
-    const [liveAnswers, setLiveAnswers] = useState({}); // { studentId: { questionId: { optionId, optionText, timestamp } } }
-    const [liveStudents, setLiveStudents] = useState({}); // { studentId: { name, lastActivity } }
-    const [livePollStats, setLivePollStats] = useState([]); // Live poll statistics calculated from socket data
+    // Helper functions
+    const getStudentName = (result) => {
+        return result.student_name || 
+               `${result.first_name || ''} ${result.last_name || ''}`.trim() || 
+               result.username || 
+               'Unknown Student';
+    };
+
+    const getGradeLabel = (percentage) => {
+        if (percentage >= 90) return 'A';
+        if (percentage >= 80) return 'B';
+        if (percentage >= 70) return 'C';
+        if (percentage >= 60) return 'D';
+        return 'F';
+    };
+
+    // Statistics card component
+    const StatCard = ({ icon, title, value, label, color }) => (
+        <div className="col-md-3 mb-3">
+            <div className={`card text-center border-${color}`}>
+                <div className="card-body">
+                    <h5 className={`card-title text-${color}`}>
+                        <i className={`fas fa-${icon} me-2`}></i>
+                        {value}
+                    </h5>
+                    <p className="card-text small">{title}</p>
+                    <small className={`text-${color}`}>{label}</small>
+                </div>
+            </div>
+        </div>
+    );
+
+    // State for real-time features
+    const [liveAnswers, setLiveAnswers] = useState({});
+    const [liveStudents, setLiveStudents] = useState({});
+    const [livePollStats, setLivePollStats] = useState([]);
 
     useEffect(() => {
         // Force connect if not connected
@@ -50,6 +82,14 @@ const QuizResults = () => {
         socket.on('live_answer_update', (data) => {
             // Only process if it's for this quiz
             if (String(data.quizId) === String(quizId)) {
+                
+                // Debug: Check if this is the first question in sequence
+                console.log('📡 Live answer received:', {
+                    questionId: data.questionId,
+                    questionType: typeof data.questionId,
+                    studentId: data.studentId,
+                    optionText: data.optionText
+                });
                 
                 // Update live answers state
                 setLiveAnswers(prev => {
@@ -104,6 +144,19 @@ const QuizResults = () => {
             return;
         }
         
+        // Debug: Log all available questions and answers
+        console.log('📊 Calculating stats for questions:', quiz.questions.map(q => ({
+            id: q.id,
+            text: q.question_text || q.text,
+            order: q.question_order || q.order
+        })));
+        
+        console.log('📊 Available answer data:', Object.entries(answersData).map(([studentId, answers]) => ({
+            studentId,
+            questionIds: Object.keys(answers),
+            answers: answers
+        })));
+        
         const stats = (quiz.questions || []).map(question => {
             // Count selections for each option from real-time data
             const optionCounts = {};
@@ -125,6 +178,18 @@ const QuizResults = () => {
             // Count selections from real-time data
             Object.values(answersData).forEach(studentAnswers => {
                 const answer = studentAnswers[question.id];
+                
+                // Debug: Check if this question has answers
+                if (question.id <= 33) { // Only log for first few questions
+                    console.log(`📊 Question ${question.id} lookup:`, {
+                        questionId: question.id,
+                        questionIdType: typeof question.id,
+                        hasAnswer: !!answer,
+                        studentAnswerKeys: Object.keys(studentAnswers),
+                        answerData: answer
+                    });
+                }
+                
                 if (answer && optionCounts[answer.selectedOptionId]) {
                     optionCounts[answer.selectedOptionId].selectionCount++;
                     totalSelections++;
@@ -739,59 +804,38 @@ const QuizResults = () => {
             {/* Overall Statistics - Real-time + Completed Combined */}
             {(stats || results.length > 0 || Object.keys(liveStudents).length > 0) && (
                 <div className="row mb-4">
-                    <div className="col-md-3 mb-3">
-                        <div className="card text-center border-primary">
-                            <div className="card-body">
-                                <h5 className="card-title text-primary">
-                                    <i className="fas fa-users me-2"></i>
-                                    {stats ? stats.totalStudents : results.length + Object.keys(liveStudents).length}
-                                </h5>
-                                <p className="card-text small">Total Students</p>
-                                <small className="text-primary">All Records</small>
-                            </div>
-                        </div>
-                    </div>
-                    <div className="col-md-3 mb-3">
-                        <div className="card text-center border-success">
-                            <div className="card-body">
-                                <h5 className="card-title text-success">
-                                    <i className="fas fa-check-circle me-2"></i>
-                                    {stats ? stats.completedSubmissions : results.length}
-                                </h5>
-                                <p className="card-text small">Completed</p>
-                                <small className="text-success">Submitted</small>
-                            </div>
-                        </div>
-                    </div>
-                    <div className="col-md-3 mb-3">
-                        <div className="card text-center border-warning">
-                            <div className="card-body">
-                                <h5 className="card-title text-warning">
-                                    <i className="fas fa-bolt me-2"></i>
-                                    {stats ? stats.activeNow : Object.keys(liveStudents).length}
-                                </h5>
-                                <p className="card-text small">Taking Quiz Now</p>
-                                <small className="text-warning">Active</small>
-                            </div>
-                        </div>
-                    </div>
-                    <div className="col-md-3 mb-3">
-                        <div className="card text-center border-info">
-                            <div className="card-body">
-                                <h5 className="card-title text-info">
-                                    <i className="fas fa-percentage me-2"></i>
-                                    {stats && !isNaN(stats.avgScoreCompleted) && stats.avgScoreCompleted > 0 ? 
-                                        `${stats.avgScoreCompleted}%` : 
-                                        results.length > 0 ? 
-                                            `${Math.round((results.reduce((sum, r) => sum + (parseFloat(r.percentage) || 0), 0) / results.length) * 10) / 10}%` : 
-                                            '0%'
-                                    }
-                                </h5>
-                                <p className="card-text small">Avg Score</p>
-                                <small className="text-info">Completed Students</small>
-                            </div>
-                        </div>
-                    </div>
+                    <StatCard 
+                        icon="users" 
+                        title="Total Students" 
+                        value={stats ? stats.totalStudents : results.length + Object.keys(liveStudents).length}
+                        label="All Records" 
+                        color="primary" 
+                    />
+                    <StatCard 
+                        icon="check-circle" 
+                        title="Completed" 
+                        value={stats ? stats.completedSubmissions : results.length}
+                        label="Submitted" 
+                        color="success" 
+                    />
+                    <StatCard 
+                        icon="bolt" 
+                        title="Taking Quiz Now" 
+                        value={stats ? stats.activeNow : Object.keys(liveStudents).length}
+                        label="Active" 
+                        color="warning" 
+                    />
+                    <StatCard 
+                        icon="percentage" 
+                        title="Avg Score" 
+                        value={stats && !isNaN(stats.avgScoreCompleted) && stats.avgScoreCompleted > 0 ? 
+                                `${stats.avgScoreCompleted}%` : 
+                                results.length > 0 ? 
+                                    `${Math.round((results.reduce((sum, r) => sum + (parseFloat(r.percentage) || 0), 0) / results.length) * 10) / 10}%` : 
+                                    '0%'}
+                        label="Completed Students" 
+                        color="info" 
+                    />
                 </div>
             )}
 
@@ -973,12 +1017,7 @@ const QuizResults = () => {
                                                     <div className="d-flex align-items-center">
                                                         <i className="fas fa-user-circle text-muted me-2"></i>
                                                         <div>
-                                                            <div className="fw-bold">
-                                                                {result.student_name || 
-                                                                 `${result.first_name || ''} ${result.last_name || ''}`.trim() || 
-                                                                 result.username || 
-                                                                 'Unknown Student'}
-                                                            </div>
+                                                            <div className="fw-bold">{getStudentName(result)}</div>
                                                             <small className="text-muted">ID: {result.student_id || result.id || 'N/A'}</small>
                                                         </div>
                                                     </div>
@@ -1006,10 +1045,7 @@ const QuizResults = () => {
                                                 <td>{formatDate(result.submitted_at)}</td>
                                                 <td>
                                                     <span className={`badge ${getGradeBadgeClass(result.percentage)}`}>
-                                                        {result.percentage >= 90 ? 'A' : 
-                                                         result.percentage >= 80 ? 'B' : 
-                                                         result.percentage >= 70 ? 'C' : 
-                                                         result.percentage >= 60 ? 'D' : 'F'}
+                                                        {getGradeLabel(result.percentage)}
                                                     </span>
                                                 </td>
                                                 <td>
@@ -1027,10 +1063,7 @@ const QuizResults = () => {
                                                 <StudentAnswerDetails 
                                                     student={{
                                                         student_id: result.student_id || result.id,
-                                                        student_name: result.student_name || 
-                                                                    `${result.first_name || ''} ${result.last_name || ''}`.trim() || 
-                                                                    result.username || 
-                                                                    'Unknown Student'
+                                                        student_name: getStudentName(result)
                                                     }} 
                                                     quiz={quiz} 
                                                     answerStats={answerStats}
