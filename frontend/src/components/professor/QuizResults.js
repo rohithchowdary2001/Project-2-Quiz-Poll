@@ -22,58 +22,34 @@ const QuizResults = () => {
     const [livePollStats, setLivePollStats] = useState([]); // Live poll statistics calculated from socket data
 
     useEffect(() => {
-        console.log('🔄 Setting up socket connection for QuizResults...');
-        
         // Force connect if not connected
         if (!socket.connected) {
-            console.log('🔌 Socket not connected, forcing connection...');
             socket.connect();
         } else {
-            console.log('✅ Socket already connected:', socket.id);
             // If already connected, join rooms immediately
             socket.emit('join_professor_room', user.id);
             socket.emit('join_quiz_room', quizId);
         }
 
         socket.on('connect', () => {
-            console.log('✅ Socket.IO connected in QuizResults:', socket.id);
             // Join professor room for receiving live updates
             socket.emit('join_professor_room', user.id);
             // Join quiz room for receiving live answer updates for this specific quiz
             socket.emit('join_quiz_room', quizId);
-            console.log(`📡 Joined rooms: professor_${user.id}, quiz_${quizId}`);
         });
         
         socket.on('disconnect', () => {
-            console.log('Socket.IO disconnected in QuizResults');
+            // Handle disconnect
         });
         
         socket.on('connect_error', (error) => {
             console.error('Socket connection error in QuizResults:', error);
         });
         
-        // 🔥 LIVE ANSWER UPDATES - Socket Only (No Database!)
+        // LIVE ANSWER UPDATES - Socket Only (No Database!)
         socket.on('live_answer_update', (data) => {
-            console.log('📝 LIVE: Answer update received in QuizResults:', data);
-            console.log('📝 Current quizId:', quizId, 'Received quizId:', data.quizId);
-            
-            // 🚨 DETAILED QUESTION ID DEBUGGING
-            console.log('🔍 QUESTION ID DEBUG:', {
-                receivedQuestionId: data.questionId,
-                questionIdType: typeof data.questionId,
-                availableQuizQuestions: quiz?.questions?.map(q => ({
-                    id: q.id,
-                    idType: typeof q.id,
-                    text: q.question_text || q.text,
-                    order: q.question_order || q.order
-                })) || 'Quiz not loaded yet'
-            });
-            
             // Only process if it's for this quiz
             if (String(data.quizId) === String(quizId)) {
-                console.log('✅ Processing live answer update for matching quiz');
-                console.log('🎯 Processing answer for question:', data.questionId, 'from student:', data.studentId);
-                
                 // Update live answers state
                 setLiveAnswers(prev => {
                     const updated = {
@@ -88,30 +64,17 @@ const QuizResults = () => {
                             }
                         }
                     };
-                    
-                    console.log('📊 Updated live answers:', updated);
-                    console.log('🔍 Questions in updated answers:', Object.keys(updated).map(studentId => 
-                        Object.keys(updated[studentId]).map(qId => ({ studentId, questionId: qId }))
-                    ).flat());
                     return updated;
                 });
 
                 // Update student activity
-                setLiveStudents(prev => {
-                    const updated = {
-                        ...prev,
-                        [data.studentId]: {
-                            name: data.studentName,
-                            lastActivity: data.timestamp
-                        }
-                    };
-                    console.log('👥 Updated live students:', updated);
-                    return updated;
-                });
-
-                console.log(`🎯 LIVE: Student ${data.studentName} selected "${data.optionText}" for question ${data.questionId}`);
-            } else {
-                console.log('❌ Ignoring answer update for different quiz');
+                setLiveStudents(prev => ({
+                    ...prev,
+                    [data.studentId]: {
+                        name: data.studentName,
+                        lastActivity: data.timestamp
+                    }
+                }));
             }
         });
         
@@ -123,89 +86,21 @@ const QuizResults = () => {
         };
     }, [user.id, quizId]);
 
-    // 🔥 Calculate live poll statistics from socket data only!
+    // Calculate live poll statistics from socket data only
     const calculateLivePollStats = useCallback((answersData) => {
         if (!quiz || !quiz.questions || !answersData || Object.keys(answersData).length === 0) {
-            console.log('📊 Cannot calculate live poll stats:', {
-                hasQuiz: !!quiz,
-                hasQuestions: !!(quiz && quiz.questions),
-                hasAnswers: !!(answersData && Object.keys(answersData).length > 0)
-            });
             setLivePollStats([]);
             return;
         }
         
-        console.log('📊 Calculating live poll stats from socket data:', answersData);
-        
-        // 🚨 CRITICAL DEBUGGING FOR FIRST QUESTION ISSUE
-        console.log('🔍 QUESTION PROCESSING ORDER AND IDS:', (quiz.questions || []).map((q, idx) => ({
-            arrayIndex: idx,
-            questionId: q.id,
-            questionIdType: typeof q.id,
-            questionText: q.question_text || q.text,
-            questionOrder: q.question_order || q.order,
-            isFirstQuestion: idx === 0
-        })));
-        
-        console.log('🔍 AVAILABLE STUDENT ANSWERS BY QUESTION ID:');
-        Object.entries(answersData).forEach(([studentId, studentAnswers]) => {
-            console.log(`Student ${studentId}:`, Object.keys(studentAnswers).map(qId => ({
-                questionId: qId,
-                questionIdType: typeof qId,
-                hasAnswer: !!studentAnswers[qId]
-            })));
-        });
-        
-        // 🚨 DETAILED QUIZ QUESTIONS INSPECTION
-        console.log('🔍 QUIZ QUESTIONS DETAILED INSPECTION:', (quiz.questions || []).map(q => ({
-            id: q?.id,
-            question_text: q?.question_text,
-            text: q?.text,
-            question_order: q?.question_order,
-            order: q?.order,
-            options: q?.options?.map(opt => ({
-                id: opt?.id,
-                option_text: opt?.option_text,
-                text: opt?.text,
-                is_correct: opt?.is_correct,
-                correct: opt?.correct
-            }))
-        })));
-        
         const stats = (quiz.questions || []).map(question => {
-            console.log('🔍 PROCESSING QUESTION FOR STATS:', {
-                questionId: question.id,
-                questionIdType: typeof question.id,
-                questionText: question.question_text || question.text,
-                questionOrder: question.question_order || question.order
-            });
-            
             // Count selections for each option from live socket data
             const optionCounts = {};
             let totalSelections = 0;
             
-            // Check if any student has answered this question
-            const studentsWithAnswers = Object.values(answersData).filter(studentAnswers => 
-                studentAnswers[question.id]
-            );
-            
-            console.log('🔍 STUDENTS WITH ANSWERS FOR QUESTION', question.id, ':', studentsWithAnswers.length, {
-                allStudentAnswers: Object.keys(answersData),
-                studentsAnsweringThisQuestion: studentsWithAnswers.map((_, idx, arr) => 
-                    Object.keys(answersData)[Object.values(answersData).indexOf(arr[idx])]
-                ),
-                answerDetails: studentsWithAnswers.map(ans => ans[question.id])
-            });
-            
             // Initialize all options with 0 count - with multiple field name fallbacks
             question.options.forEach(option => {
                 const optionText = option.option_text || option.text || `Option ${option.id}`;
-                console.log('🔍 Option text resolution:', {
-                    optionId: option.id,
-                    option_text: option.option_text,
-                    text: option.text,
-                    final_text: optionText
-                });
                 
                 optionCounts[option.id] = {
                     optionId: option.id,
@@ -220,13 +115,8 @@ const QuizResults = () => {
             Object.values(answersData).forEach(studentAnswers => {
                 const answer = studentAnswers[question.id];
                 if (answer && optionCounts[answer.selectedOptionId]) {
-                    console.log('✅ Found answer for question', question.id, ':', answer);
                     optionCounts[answer.selectedOptionId].selectionCount++;
                     totalSelections++;
-                } else if (answer) {
-                    console.log('❌ Answer found but option not in counts:', answer, 'Available options:', Object.keys(optionCounts));
-                } else {
-                    console.log('ℹ️ No answer for question', question.id, 'in student data:', Object.keys(studentAnswers));
                 }
             });
             
@@ -239,46 +129,24 @@ const QuizResults = () => {
             
             // Get question text with multiple field name fallbacks
             const questionText = question.question_text || question.text || `Question ${question.question_order || question.order || question.id}`;
-            console.log('🔍 Question text resolution:', {
-                questionId: question.id,
-                question_text: question.question_text,
-                text: question.text,
-                question_order: question.question_order,
-                order: question.order,
-                final_text: questionText
-            });
 
-            const result = {
+            return {
                 questionId: question.id,
                 questionText: questionText,
                 questionOrder: question.question_order || question.order || 0,
                 totalSelections,
                 options: Object.values(optionCounts)
             };
-            
-            console.log('📊 FINAL STATS FOR QUESTION', question.id, ':', result);
-            return result;
         });
         
-        console.log('📊 Live poll stats calculated:', stats);
         setLivePollStats(stats);
     }, [quiz]);
 
     // Separate effect to calculate live poll stats when quiz or live answers change
     useEffect(() => {
-        console.log('🔄 Live poll stats effect triggered:', {
-            hasQuiz: !!quiz,
-            hasQuestions: !!(quiz && quiz.questions),
-            liveAnswersCount: Object.keys(liveAnswers).length,
-            liveStudentsCount: Object.keys(liveStudents).length
-        });
-        
         if (quiz && quiz.questions && Object.keys(liveAnswers).length > 0) {
-            console.log('📊 Recalculating live poll stats due to quiz or answers change');
-            console.log('📊 Current live answers:', liveAnswers);
             calculateLivePollStats(liveAnswers);
         } else if (quiz && quiz.questions) {
-            console.log('📊 Quiz loaded but no live answers yet, clearing stats');
             setLivePollStats([]);
         }
     }, [quiz, liveAnswers, calculateLivePollStats]);
@@ -289,7 +157,6 @@ const QuizResults = () => {
         }
 
         socket.on('quizResultsUpdated', (data) => {
-            console.log('Received quizResultsUpdated:', data);
             if (String(data.quizId) === String(quizId)) {
                 fetchQuizResults();
             }
@@ -303,48 +170,15 @@ const QuizResults = () => {
     const fetchQuizResults = async () => {
         try {
             setLoading(true);
-            console.log('🔄 Fetching quiz results for quizId:', quizId);
-            
             // Fetch quiz info AND completed submissions from database
             const [quizResponse, resultsResponse] = await Promise.all([
                 api.get(`/quizzes/${quizId}`),
                 api.get(`/quizzes/${quizId}/results?sortBy=${sortBy}&sortOrder=${sortOrder}`)
             ]);
             
-            console.log('📊 Quiz data received:', quizResponse.data.quiz);
-            console.log('📊 Results data received:', resultsResponse.data);
-            
             const quizData = quizResponse.data.quiz;
             const resultsData = resultsResponse.data.results || [];
             const answerStatsData = resultsResponse.data.answerStats || resultsResponse.data.answerStatistics || [];
-            
-            // 🚨 CRITICAL DEBUG: Log the exact structure we receive
-            console.log('🔍 CRITICAL DATA STRUCTURE ANALYSIS:', {
-                quizData: {
-                    id: quizData?.id,
-                    title: quizData?.title,
-                    questions: quizData?.questions?.map(q => ({
-                        id: q?.id,
-                        question_text: q?.question_text,
-                        question_order: q?.question_order,
-                        options: q?.options?.map(opt => ({
-                            id: opt?.id,
-                            option_text: opt?.option_text,
-                            is_correct: opt?.is_correct
-                        }))
-                    }))
-                },
-                resultsData: resultsData.map(r => ({
-                    id: r?.id,
-                    student_id: r?.student_id,
-                    student_name: r?.student_name || `${r?.first_name} ${r?.last_name}` || r?.username,
-                    score: r?.score || r?.total_score,
-                    percentage: r?.percentage,
-                    submitted_at: r?.submitted_at,
-                    allFields: Object.keys(r || {})
-                })),
-                answerStatsData: answerStatsData.slice(0, 5) // First 5 for brevity
-            });
             
             // Fix student name mapping
             const processedResults = resultsData.map(result => ({
@@ -356,8 +190,6 @@ const QuizResults = () => {
                 score: result.score || result.total_score || 0,
                 total_questions: result.total_questions || result.max_score || 0
             }));
-            
-            console.log('📊 Processed results:', processedResults);
             
             // Transform answerStats from backend format to frontend format
             const transformedAnswerStats = {};
@@ -386,14 +218,9 @@ const QuizResults = () => {
             const processedAnswerStats = Object.values(transformedAnswerStats)
                 .sort((a, b) => a.questionOrder - b.questionOrder);
             
-            console.log('📊 Transformed answerStats:', processedAnswerStats);
-            
             setQuiz(quizData);
             setResults(processedResults);
             setAnswerStats(processedAnswerStats);
-            
-            console.log('📊 Quiz loaded with', results.length, 'completed submissions');
-            console.log('🔴 Live socket data will show students currently taking the quiz');
             
             setError('');
         } catch (err) {
@@ -482,21 +309,15 @@ const QuizResults = () => {
 
     const getStudentAnswers = async (studentId) => {
         try {
-            console.log('🔍 Getting answers for student ID:', studentId, typeof studentId);
-            console.log('🔍 Available answerStats:', answerStats);
-            console.log('🔍 Available results:', results);
-            
             // First try the existing answer stats to see if we can find student answers
             const studentAnswersFromStats = answerStats.filter(stat => {
                 const matches = stat.student_id === studentId || 
                               stat.student_id === parseInt(studentId) ||
                               stat.student_id === String(studentId);
-                console.log('🔍 Checking stat:', stat, 'matches:', matches);
                 return matches;
             });
             
             if (studentAnswersFromStats.length > 0) {
-                console.log('📊 Found student answers in answerStats:', studentAnswersFromStats);
                 return studentAnswersFromStats;
             }
             
@@ -506,22 +327,17 @@ const QuizResults = () => {
                               r.student_id === parseInt(studentId) ||
                               r.id === studentId || 
                               r.id === parseInt(studentId);
-                console.log('🔍 Checking result:', r, 'matches:', matches);
                 return matches;
             });
             
             if (studentResult) {
-                console.log('📊 Found student result:', studentResult);
-                
                 // If the result has answers array, use it
                 if (studentResult.answers && Array.isArray(studentResult.answers)) {
-                    console.log('📊 Using answers from result data:', studentResult.answers);
                     return studentResult.answers;
                 }
                 
                 // Create mock answers based on quiz structure for testing
                 if (quiz && quiz.questions) {
-                    console.log('📊 Creating mock answers for testing purposes');
                     const mockAnswers = quiz.questions.map((question, idx) => ({
                         question_id: question.id,
                         selected_option_id: question.options?.[0]?.id, // Select first option for demo
@@ -535,10 +351,8 @@ const QuizResults = () => {
             }
             
             // If not found in stats, try API call
-            console.log('� Trying API call for student answers');
             try {
                 const response = await api.get(`/quizzes/${quizId}/student/${studentId}/answers`);
-                console.log('📊 API response for student answers:', response.data);
                 return response.data.answers || [];
             } catch (apiError) {
                 console.warn('⚠️ API call failed:', apiError.message);
@@ -559,30 +373,19 @@ const QuizResults = () => {
 
         useEffect(() => {
             const fetchAnswers = async () => {
-                console.log('🔍 Fetching answers for student:', student.student_id, student.student_name);
-                
                 setLoading(true);
                 try {
                     // Get student answers from API
-                    console.log('🌐 Making API call to:', `/quizzes/${quizId}/student/${student.student_id}/answers`);
                     const response = await api.get(`/quizzes/${quizId}/student/${student.student_id}/answers`);
-                    console.log('📊 Full API response:', response.data);
-                    
                     const studentAnswers = response.data.answers || [];
                     const apiQuestions = response.data.questions || [];
-                    
-                    console.log('📊 Received student answers:', studentAnswers);
-                    console.log('📊 Received questions from API:', apiQuestions);
                     
                     setAnswers(studentAnswers);
                     
                     // PRIORITY 1: Try to get complete quiz structure from main API as it has full text
-                    console.log('🔄 Step 1: Getting complete quiz structure from main API...');
                     try {
                         const quizResponse = await api.get(`/quizzes/${quizId}`);
                         const completeQuiz = quizResponse.data.quiz;
-                        console.log('📋 Complete quiz data received:', completeQuiz);
-                        
                         if (completeQuiz && completeQuiz.questions && completeQuiz.questions.length > 0) {
                             // Check if we have actual text content
                             const hasText = completeQuiz.questions.some(q => 
@@ -590,7 +393,6 @@ const QuizResults = () => {
                             );
                             
                             if (hasText) {
-                                console.log('✅ SUCCESS: Complete quiz has question text');
                                 const formattedQuestions = completeQuiz.questions.map(q => ({
                                     questionId: q.id,
                                     id: q.id,
@@ -608,26 +410,20 @@ const QuizResults = () => {
                                         option_order: opt.option_order
                                     }))
                                 }));
-                                console.log('📋 Using complete quiz questions with text:', formattedQuestions);
                                 setAllQuestions(formattedQuestions);
                             } else {
-                                console.log('⚠️ Complete quiz data lacks question text, trying API response');
                                 tryApiQuestions();
                             }
                         } else {
-                            console.log('⚠️ No complete quiz data, trying API response');
                             tryApiQuestions();
                         }
                     } catch (quizError) {
-                        console.log('⚠️ Failed to get complete quiz, trying API response:', quizError);
                         tryApiQuestions();
                     }
                     
                     function tryApiQuestions() {
                         // PRIORITY 2: Try API questions if available
                         if (apiQuestions && apiQuestions.length > 0) {
-                            console.log('📋 Using API questions from student answers endpoint');
-                            console.log('📋 API Questions:', apiQuestions);
                             const formattedQuestions = apiQuestions.map(q => ({
                                 questionId: q.id,
                                 id: q.id,
@@ -645,11 +441,9 @@ const QuizResults = () => {
                                     option_order: opt.option_order
                                 }))
                             }));
-                            console.log('📋 Formatted API questions:', formattedQuestions);
                             setAllQuestions(formattedQuestions);
                             
                         } else if (quiz && quiz.questions && quiz.questions.length > 0) {
-                            console.log('📋 Using quiz structure from props');
                             // Format quiz data to match expected structure
                             const formattedQuizQuestions = quiz.questions.map(q => ({
                                 questionId: q.id,
@@ -670,7 +464,6 @@ const QuizResults = () => {
                             setAllQuestions(formattedQuizQuestions);
                             
                         } else {
-                            console.log('📋 No question structure available');
                             setAllQuestions([]);
                         }
                     }
@@ -686,7 +479,6 @@ const QuizResults = () => {
                     
                     // Fallback: Try to use quiz structure from props as backup
                     if (quiz && quiz.questions && quiz.questions.length > 0) {
-                        console.log('📋 FALLBACK: Using quiz structure from props due to API error');
                         const formattedQuizQuestions = quiz.questions.map(q => ({
                             questionId: q.id,
                             id: q.id,
@@ -723,10 +515,6 @@ const QuizResults = () => {
             );
         }
 
-        console.log('🎯 Rendering answers for:', student.student_name);
-        console.log('🎯 Student answers from API:', answers);
-        console.log('🎯 All questions structure:', allQuestions);
-
         return (
             <tr>
                 <td colSpan="7" className="bg-light p-0">
@@ -742,16 +530,6 @@ const QuizResults = () => {
                                         parseInt(a.question_id) === parseInt(question.questionId || question.id)
                                     );
                                     
-                                    console.log(`🎯 Q${qIdx + 1} DETAILED DEBUG:`, {
-                                        questionId: question.questionId || question.id,
-                                        questionText: question.questionText || question.question_text,
-                                        questionObject: question,
-                                        studentAnswer,
-                                        hasAnswer: !!studentAnswer,
-                                        optionsCount: question.options?.length || 0,
-                                        firstOptionSample: question.options?.[0]
-                                    });
-                                    
                                     return (
                                         <div key={question.questionId || question.id} className="col-lg-6 mb-4">
                                             <div className={`card h-100 ${studentAnswer?.is_correct ? 'border-success' : (studentAnswer ? 'border-danger' : 'border-secondary')}`}>
@@ -759,9 +537,6 @@ const QuizResults = () => {
                                                     <small className="fw-bold">
                                                         Question {question.questionOrder || question.question_order || (qIdx + 1)}: {question.questionText || question.question_text || `[Missing question text for ID: ${question.questionId || question.id}]`}
                                                     </small>
-                                                    <div className="text-muted" style={{fontSize: '10px'}}>
-                                                        Debug: Q-ID:{question.questionId || question.id}, Text:"{question.questionText || question.question_text}", Options:{question.options?.length || 0}
-                                                    </div>
                                                 </div>
                                                 <div className="card-body py-3">
                                                     {/* Show all options if available in quiz structure */}
@@ -797,9 +572,6 @@ const QuizResults = () => {
                                                                         {isSelected && <span className="badge bg-primary ms-2">Selected</span>}
                                                                         {isCorrect && <span className="badge bg-success ms-2">Correct</span>}
                                                                     </small>
-                                                                    <div className="text-muted" style={{fontSize: '9px'}}>
-                                                                        Debug: Opt-ID:{option.optionId || option.id}, Text:"{option.optionText || option.option_text}", Correct:{option.isCorrect || option.is_correct}
-                                                                    </div>
                                                                 </div>
                                                             );
                                                         })
@@ -855,34 +627,8 @@ const QuizResults = () => {
                             <div className="alert alert-warning">
                                 <i className="fas fa-exclamation-triangle me-2"></i>
                                 No question data available for this student
-                                <details className="mt-2">
-                                    <summary className="text-primary" style={{cursor: 'pointer'}}>📊 Show Debug Data</summary>
-                                    <div className="mt-2 p-2 bg-light rounded">
-                                        <small>
-                                            <strong>Student ID:</strong> {student.student_id}<br/>
-                                            <strong>Quiz ID:</strong> {quizId}<br/>
-                                            <strong>API Questions Length:</strong> {allQuestions.length}<br/>
-                                            <strong>Student Answers Length:</strong> {answers.length}<br/>
-                                            <strong>Quiz Questions from Props:</strong> {quiz?.questions?.length || 0}<br/>
-                                            <strong>Available answerStats:</strong> {answerStats?.length || 0}
-                                        </small>
-                                    </div>
-                                </details>
                             </div>
                         )}
-                        
-                        {/* Debug Information */}
-                        <div className="mt-3">
-                            <details className="small">
-                                <summary className="text-muted">🔍 Debug Info (Click to expand)</summary>
-                                <pre className="mt-2 p-2 bg-light rounded small">
-                                    <strong>Student:</strong> {JSON.stringify({ id: student.student_id, name: student.student_name }, null, 2)}
-                                    <strong>Answers Found:</strong> {answers.length}
-                                    <strong>Answer Data:</strong> {JSON.stringify(answers, null, 2)}
-                                    <strong>Quiz Questions:</strong> {quiz?.questions?.length || 0}
-                                </pre>
-                            </details>
-                        </div>
                     </div>
                 </td>
             </tr>
@@ -902,8 +648,6 @@ const QuizResults = () => {
         const completedSubmissions = results.length;
         const totalStudents = liveStudentCount + completedSubmissions;
         
-        console.log('📊 Calculating stats:', { liveStudentCount, completedSubmissions, totalStudents });
-        
         // Calculate stats from live data (socket-only, no database!)
         const totalLiveAnswers = Object.values(liveAnswers).reduce((sum, studentAnswers) => 
             sum + Object.keys(studentAnswers).length, 0
@@ -914,12 +658,6 @@ const QuizResults = () => {
         const avgScoreCompleted = validResults.length > 0 
             ? Math.round((validResults.reduce((sum, result) => sum + parseFloat(result.percentage || 0), 0) / validResults.length) * 10) / 10
             : 0;
-        
-        console.log('📊 Stats calculated:', { 
-            avgScoreCompleted, 
-            validResults: validResults.length,
-            totalLiveAnswers 
-        });
         
         return {
             totalStudents,
@@ -975,51 +713,6 @@ const QuizResults = () => {
                     <button className="btn btn-primary me-2" onClick={fetchQuizResults}>
                         <i className="fas fa-sync-alt me-2"></i>
                         Refresh Results
-                    </button>
-                    <button 
-                        className="btn btn-warning me-2" 
-                        onClick={() => {
-                            console.log('🧪 DEBUG INFO:');
-                            console.log('Socket connected:', socket.connected);
-                            console.log('Socket ID:', socket.id);
-                            console.log('Live students:', liveStudents);
-                            console.log('Live answers:', liveAnswers);
-                            console.log('Live poll stats:', livePollStats);
-                            console.log('Quiz data:', quiz);
-                            
-                            // Test socket emission
-                            console.log('📡 Testing socket connection...');
-                            socket.emit('join_quiz_room', quizId);
-                            socket.emit('join_professor_room', user.id);
-                        }}
-                    >
-                        <i className="fas fa-bug me-2"></i>
-                        Debug Socket
-                    </button>
-                    <button 
-                        className="btn btn-info" 
-                        onClick={() => {
-                            console.log('🧪 SIMULATING STUDENT ANSWER...');
-                            if (quiz && quiz.questions && quiz.questions.length > 0) {
-                                const testAnswer = {
-                                    studentId: 'test_student_123',
-                                    studentName: 'Test Student',
-                                    quizId: parseInt(quizId),
-                                    questionId: quiz.questions[0].id,
-                                    selectedOptionId: quiz.questions[0].options[0].id,
-                                    optionText: quiz.questions[0].options[0].option_text,
-                                    timestamp: Date.now()
-                                };
-                                
-                                console.log('📡 Emitting test answer:', testAnswer);
-                                socket.emit('live_answer_update', testAnswer);
-                            } else {
-                                console.log('❌ No quiz data available for test');
-                            }
-                        }}
-                    >
-                        <i className="fas fa-flask me-2"></i>
-                        Test Answer
                     </button>
                 </div>
             </div>
@@ -1091,7 +784,7 @@ const QuizResults = () => {
                 </div>
             )}
 
-            {/* 🔥 LIVE ANSWER TRACKING - Socket Only! */}
+            {/* LIVE ANSWER TRACKING - Socket Only! */}
             {Object.keys(liveStudents).length > 0 && (
                 <div className="card mb-4 border-success">
                     <div className="card-header bg-success text-white">
@@ -1164,36 +857,6 @@ const QuizResults = () => {
                     <small>Real-time responses from students</small>
                 </div>
                 <div className="card-body">
-                    {/* TEMPORARY DEBUG DISPLAY - REMOVE AFTER FIXING */}
-                    <div className="alert alert-info">
-                        <details>
-                            <summary><strong>🔍 DEBUG: Raw Live Answers Data</strong></summary>
-                            <pre className="small mt-2">
-                                {JSON.stringify(liveAnswers, null, 2)}
-                            </pre>
-                        </details>
-                        <details>
-                            <summary><strong>🔍 DEBUG: Quiz Questions Data</strong></summary>
-                            <pre className="small mt-2">
-                                {JSON.stringify((quiz?.questions || []).map(q => ({
-                                    id: q.id,
-                                    text: q.question_text || q.text,
-                                    order: q.question_order || q.order
-                                })), null, 2)}
-                            </pre>
-                        </details>
-                        <details>
-                            <summary><strong>🔍 DEBUG: Calculated Stats</strong></summary>
-                            <pre className="small mt-2">
-                                {JSON.stringify(livePollStats.map(s => ({
-                                    questionId: s.questionId,
-                                    questionText: s.questionText,
-                                    totalSelections: s.totalSelections,
-                                    optionsCount: s.options.length
-                                })), null, 2)}
-                            </pre>
-                        </details>
-                    </div>
                     {livePollStats && livePollStats.length > 0 ? (
                         (livePollStats || []).map(question => (
                             <div key={question.questionId} className="mb-4 pb-3">
@@ -1252,23 +915,22 @@ const QuizResults = () => {
                         <h5 className="text-muted">No Live Quiz Activity</h5>
                         <div className="text-start">
                             <p className="text-muted mb-1">
-                                📊 <strong>Completed submissions:</strong> {results.length} students found in database<br />
+                                <strong>Completed submissions:</strong> {results.length} students found in database<br />
                                 🔴 <strong>Live students:</strong> {Object.keys(liveStudents).length} currently taking the quiz<br />
-                                📡 <strong>Socket status:</strong> {socket.connected ? '✅ Connected' : '❌ Disconnected'} (ID: {socket.id})
+                                <strong>Socket status:</strong> {socket.connected ? '✅ Connected' : '❌ Disconnected'} (ID: {socket.id})
                             </p>
                             <hr />
                             <p className="text-muted mb-0">
-                                <strong>🔥 Live poll results</strong> will appear here automatically as students start taking the quiz.<br />
+                                <strong>Live poll results</strong> will appear here automatically as students start taking the quiz.<br />
                                 <small>• Students must select answers to see live polling data<br />
-                                • Results update in real-time via Socket.IO (no database calls)<br />
-                                • Use "Debug Socket" button above to check connection status</small>
+                                • Results update in real-time via Socket.IO (no database calls)</small>
                             </p>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* 🔥 COMPLETED SUBMISSIONS from Database */}
+            {/* COMPLETED SUBMISSIONS from Database */}
             {results.length > 0 && (
                 <div className="card">
                     <div className="card-header bg-primary text-white">
