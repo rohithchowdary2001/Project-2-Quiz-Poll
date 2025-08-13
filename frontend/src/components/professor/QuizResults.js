@@ -628,16 +628,12 @@ const QuizResults = () => {
                                                             
                                                             if (isSelected && isCorrect) {
                                                                 className += "bg-success bg-opacity-25 border-success";
-                                                                icon = "✅";
                                                             } else if (isSelected && !isCorrect) {
                                                                 className += "bg-danger bg-opacity-25 border-danger";
-                                                                icon = "❌";
                                                             } else if (isCorrect) {
                                                                 className += "bg-warning bg-opacity-25 border-warning";
-                                                                icon = "⭐";
                                                             } else {
                                                                 className += "bg-light border-light";
-                                                                icon = "⚪";
                                                             }
                                                             
                                                             return (
@@ -893,11 +889,11 @@ const QuizResults = () => {
                                 </div>
                             );
                         })}
-                        <div className="alert alert-info mb-0">
+                        {/* <div className="alert alert-info mb-0">
                             <i className="fas fa-info-circle me-2"></i>
                             <strong>Real-time Updates:</strong> These answers are updated live as students take the quiz. 
                             Final results are saved when students complete their submission.
-                        </div>
+                        </div> */}
                     </div>
                 </div>
             )}
@@ -975,11 +971,11 @@ const QuizResults = () => {
                                 <strong>Connection status:</strong> {socket.connected ? 'Connected' : 'Disconnected'} (ID: {socket.id})
                             </p>
                             <hr />
-                            <p className="text-muted mb-0">
+                            {/* <p className="text-muted mb-0">
                                 <strong>Real-time results</strong> will appear here automatically as students start taking the quiz.<br />
                                 <small>• Students must select answers to see live polling data<br />
                                 • Results update in real-time as answers are submitted</small>
-                            </p>
+                            </p> */}
                         </div>
                     </div>
                 </div>

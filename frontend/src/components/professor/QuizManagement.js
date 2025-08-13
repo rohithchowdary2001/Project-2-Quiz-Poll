@@ -175,8 +175,8 @@ const QuizManagement = () => {
       const isCurrentlyActive = Boolean(currentStatus);
       const newStatus = !isCurrentlyActive;
       
-      console.log(`🔄 PURE FRONTEND: Live toggling quiz ${quizId}`);
-      console.log(`📊 Current status: ${currentStatus} → New status: ${newStatus}`);
+      console.log(` PURE FRONTEND: Live toggling quiz ${quizId}`);
+      console.log(` Current status: ${currentStatus} → New status: ${newStatus}`);
       
       // Get quiz details for socket broadcast
       const quiz = quizzes.find(q => q.id === quizId);
@@ -185,15 +185,15 @@ const QuizManagement = () => {
         return;
       }
 
-      // 🔍 DEBUG: Check class ID details
-      console.log(`🔍 PROFESSOR DEBUG: Quiz details:`, {
+      //  DEBUG: Check class ID details
+      console.log(` PROFESSOR DEBUG: Quiz details:`, {
         id: quiz.id,
         title: quiz.title,
         class_id: quiz.class_id,
         class_name: quiz.class_name
       });
-      console.log(`🔍 PROFESSOR DEBUG: Broadcasting to class_${quiz.class_id}`);
-      console.log(`🔍 PROFESSOR DEBUG: Student should be in class room ${quiz.class_id} to receive this`);
+      console.log(`PROFESSOR DEBUG: Broadcasting to class_${quiz.class_id}`);
+      console.log(`PROFESSOR DEBUG: Student should be in class room ${quiz.class_id} to receive this`);
 
       // Update the quiz in local state immediately (Pure Frontend!)
       setQuizzes(prev => prev.map(q => 
@@ -213,11 +213,11 @@ const QuizManagement = () => {
         timestamp: Date.now()
       });
 
-      console.log(`📡 SOCKET-ONLY: Quiz ${quizId} ${newStatus ? 'activated' : 'deactivated'} via socket broadcast`);
-      console.log(`� NO DATABASE CALLS - Pure frontend socket communication!`);
+      console.log(` SOCKET-ONLY: Quiz ${quizId} ${newStatus ? 'activated' : 'deactivated'} via socket broadcast`);
+      console.log(` NO DATABASE CALLS - Pure frontend socket communication!`);
       
     } catch (err) {
-      console.error('❌ Failed to toggle quiz status:', err);
+      console.error(' Failed to toggle quiz status:', err);
       setError(err.message || 'Failed to update quiz status');
     }
   };

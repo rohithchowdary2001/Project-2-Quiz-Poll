@@ -39,7 +39,7 @@ const AvailableQuizzes = () => {
             setQuizzes(prev => {
                 const updated = prev.map(quiz => {
                     if (quiz.id === data.quizId) {
-                        console.log(`🔄 Live update for quiz ${data.quizId}:`, {
+                        console.log(` Live update for quiz ${data.quizId}:`, {
                             from: quiz.is_live_active,
                             fromType: typeof quiz.is_live_active,
                             to: data.isLiveActive,
@@ -55,8 +55,8 @@ const AvailableQuizzes = () => {
             
             // Show notification to user
             const statusMessage = data.isLiveActive 
-                ? `🎉 "${data.quizTitle}" is now LIVE and available for taking!`
-                : `⏸️ "${data.quizTitle}" has been PAUSED and is no longer available.`;
+                ? ` "${data.quizTitle}" is now LIVE and available for taking!`
+                : ` "${data.quizTitle}" has been PAUSED and is no longer available.`;
             
             alert(statusMessage);
             
@@ -124,7 +124,7 @@ const AvailableQuizzes = () => {
                 const updated = prev.map(quiz => {
                     const currentStatus = statuses.find(s => s.quizId === quiz.id);
                     if (currentStatus) {
-                        console.log(`🔄 Updating quiz ${quiz.id} status:`, {
+                        console.log(` Updating quiz ${quiz.id} status:`, {
                             from: quiz.is_live_active,
                             fromType: typeof quiz.is_live_active,
                             to: currentStatus.isLiveActive,
@@ -325,7 +325,7 @@ const AvailableQuizzes = () => {
                                                         : 'fa-pause-circle'
                                                 } me-1`}></i>
                                                 {!!quiz.is_live_active ? 'Live' : 'Paused'}
-                                                <small className="ms-1" title="Socket-only status, no database">⚡</small>
+                                                <small className="ms-1" title="Socket-only status, no database"></small>
                                             </span>
                                         </div>
                                     </div>
