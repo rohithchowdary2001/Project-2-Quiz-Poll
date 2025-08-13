@@ -495,7 +495,7 @@ const QuizManagement = () => {
                                 : 'fa-play'
                             } me-1`}></i>
                             {Boolean(quiz.is_live_active) ? 'Pause' : 'Activate'}
-                            <small className="ms-1" title="Socket-only, no database">⚡</small>
+                            <small className="ms-1" title="Socket-only, no database"></small>
                           </button>
                         </div>
                       </td>
