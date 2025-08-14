@@ -5,6 +5,14 @@ on:
     branches:
       - main
 
+- name: Install dependencies
+  run: npm ci
+
+- name: Fix react-scripts permissions
+  run: chmod +x node_modules/.bin/react-scripts
+
+- name: Build project
+  run: npm run build
 jobs:
   build_and_deploy:
     runs-on: ubuntu-latest
