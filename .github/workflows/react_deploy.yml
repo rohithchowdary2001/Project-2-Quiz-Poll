@@ -11,6 +11,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Fix react-scripts permissions
+        run: chmod +x node_modules/.bin/react-scripts
+        working-directory: ./frontend
       - name: Install dependencies
         run: npm ci
 
