@@ -1,36 +1,45 @@
-name: AWS DEPLOY TO STAGING
+name: Deploy Frontend to EC2
 
-#turn off deploy to AWS
 on:
-  pull_request:
-    types: [closed]
+  push:
     branches:
-      - dev
+      - main  # or whichever branch you want to trigger deployment
 
 jobs:
-  aws-deploy:
+  build-and-deploy:
     runs-on: ubuntu-latest
-    #For google auth
+
+    defaults:
+      run:
+        working-directory: frontend
 
     steps:
-      - uses: actions/checkout@v3
-        # may need to change to version 3
-        with:
-          ref: dev
-      - uses: actions/setup-node@v3
-        #May need to change to version 18
-        with:
-          node-version: 18
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-      - run: npm install
-      - run: npm run build
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
 
-      - name: Deploy to Server
-        uses: easingthemes/ssh-deploy@v2.1.1
+      - name: Install dependencies
+        run: npm install
+        working-directory: frontend
+
+      - run: chmod +x node_modules/.bin/react-scripts
+        working-directory: frontend
+
+
+      - name: Build project
+        run: npm run build
+        working-directory: frontend
+
+      - name: Deploy via rsync over SSH
+        uses: burnett01/rsync-deployments@5.2
         env:
           SSH_PRIVATE_KEY: ${{ secrets.SERVER_SSH_KEY }}
           ARGS: "-rltgoDzvO --delete"
-          SOURCE: "dist/"
+          SOURCE: "build/"
           REMOTE_HOST: "ec2-3-90-176-226.compute-1.amazonaws.com"
           REMOTE_USER: Administrator
-          TARGET: "/var/www/html/recipe-frontend"
+          TARGET: "C:/xampp/htdocs/frontend"
