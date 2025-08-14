@@ -1,10 +1,9 @@
 name: AWS DEPLOY TO STAGING (React Frontend)
 
 on:
-  pull_request:
-    types: [closed]
-    branches:
-      - dev
+  push:
+     branches:
+        - main
 
 jobs:
   aws-deploy:
