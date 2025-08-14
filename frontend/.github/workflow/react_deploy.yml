@@ -2,8 +2,8 @@ name: AWS DEPLOY TO STAGING (React Frontend)
 
 on:
   push:
-     branches:
-        - main
+    branches:
+      - main
 
 jobs:
   aws-deploy:
@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
         with:
-          ref: dev
+          ref: main
 
       - name: Setup Node.js
         uses: actions/setup-node@v3
@@ -32,4 +32,4 @@ jobs:
           SOURCE: "build/"
           REMOTE_HOST: "ec2-3-90-176-226.compute-1.amazonaws.com"
           REMOTE_USER: Administrator
-          TARGET: "C:/xampp/htdocs/frontend"
+          TARGET: "C:/xampp/htdocs/travel-frontend"
