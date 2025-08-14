@@ -1,36 +1,35 @@
-name: AWS DEPLOY TO STAGING (React Frontend)
+name: React Frontend Deployment
 
 on:
   push:
     branches:
       - main
 
-
 jobs:
-  aws-deploy:
+  build_and_deploy:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v2
-        with:
-          ref: main
+      - name: Checkout code
+        uses: actions/checkout@v3
 
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: 16
+          node-version: '16'
 
       - name: Install dependencies
         run: npm install
 
-      - name: Build React project
+      - name: Build project
         run: npm run build
 
-      - name: Deploy to Server
+      - name: Deploy to AWS
         uses: easingthemes/ssh-deploy@v2.1.1
-        env:
-          SSH_PRIVATE_KEY: ${{ secrets.SERVER_SSH_KEY }}
-          ARGS: "-rltgoDzvO --delete"
-          SOURCE: "build/"
-          REMOTE_HOST: "ec2-3-90-176-226.compute-1.amazonaws.com"
-          REMOTE_USER: Administrator
-          TARGET: "C:/xampp/htdocs/travel-frontend"
+        with:
+          ssh_private_key: ${{ secrets.SERVER_SSH_KEY }}
+          args: "-rltgoDzvO --delete"
+          source: "build/"
+          remote_host: "ec2-3-90-176-226.compute-1.amazonaws.com"
+          remote_user: "Administrator"
+          target: "C:/xampp/htdocs/travel-frontend"
