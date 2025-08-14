@@ -17,9 +17,6 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: '16'
-
-      - name: Change permissions
-        run: chmod +777 ./*
       - name: Install dependencies
         run: npm install
         # This will now run from within your 'frontend' folder.
