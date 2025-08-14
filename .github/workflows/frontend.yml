@@ -41,6 +41,6 @@ jobs:
           ARGS: "-rltgoDzvO --delete"
           SOURCE: "build/"
           REMOTE_HOST: "ec2-3-90-176-226.compute-1.amazonaws.com"
-          REMOTE_USER: Administrator
+          REMOTE_USER: "Administrator"
           TARGET: "C:/xampp/htdocs/frontend"
           
