@@ -34,13 +34,15 @@ jobs:
         run: npm run build
         working-directory: frontend
 
-      - name: Deploy via rsync over SSH
-        uses: burnett01/rsync-deployments@5.2
-        env:
-          SSH_PRIVATE_KEY: ${{ secrets.SERVER_SSH_KEY }}
-          ARGS: "-rltgoDzvO --delete"
-          SOURCE: "build/"
-          REMOTE_HOST: ec2-3-90-176-226.compute-1.amazonaws.com
-          REMOTE_USER: "Administrator"
-          TARGET: "C:/xampp/htdocs/frontend"
+
+      - name: Deploy to EC2
+        uses: burnett01/rsync-deployments@7.0.2
+        with:
+          switches: -rltgoDzvO --delete
+          legacy_allow_rsa_hostkeys: "true"  
+          path: build/
+          remote_path: C:/xampp/htdocs/frontend
+          remote_host: ec2-3-90-176-226.compute-1.amazonaws.com
+          remote_user: Administrator
+          remote_key: ${{ secrets.SERVER_SSH_KEY }}        
           
