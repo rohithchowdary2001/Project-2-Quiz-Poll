@@ -40,7 +40,7 @@ jobs:
         with:
           switches: -rltgoDzvO --delete
           legacy_allow_rsa_hostkeys: "true"  
-          path: build/
+          path: frontend/build/
           remote_path: C:/xampp/htdocs/frontend
           remote_host: ec2-3-90-176-226.compute-1.amazonaws.com
           remote_user: Administrator
